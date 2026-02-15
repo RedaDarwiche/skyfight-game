@@ -885,7 +885,7 @@
         <button id="nav-login-btn">Login</button>
         <div id="profile-card">
             <div>
-                <span class="profile-avatar">P</span>
+               <span class="profile-avatar" id="profile-avatar">P</span>
                 <span id="display-username">Player</span>
             </div>
             <button class="logout-btn" onclick="handleLogout()">Logout</button>
@@ -3224,7 +3224,7 @@ socket.on('gotHit', (data) => {
 // FORUM SYSTEM
         let selectedCategory = null;
         let lastPostTime = 0;
-        const POST_COOLDOWN = 5 * 60 * 1000; // 5 minutes in milliseconds
+        const POST_COOLDOWN = 10 * 1000; // 10 seconds in milliseconds
 
         async function openForum() {
             document.getElementById('forum-modal').style.display = 'flex';
@@ -3252,8 +3252,14 @@ socket.on('gotHit', (data) => {
         }
 
         async function createForumPost() {
-            // Check if logged in first
-            if (!currentUser) {
+    // Check if storage is available
+    if (!window.storage) {
+        showToast('Storage not available. Please refresh the page.', 'error');
+        return;
+    }
+    
+    // Check if logged in first
+    if (!currentUser) {
                 showToast('You must be logged in to post!', 'error');
                 closeForum();
                 openAuthModal();
@@ -3305,10 +3311,13 @@ socket.on('gotHit', (data) => {
             };
             
             // Save to storage
-            try {
-                const result = await window.storage.set(post.id, JSON.stringify(post), true);
-                if (result) {
-                    showToast('Post created successfully!', 'success');
+try {
+    console.log('Attempting to create forum post:', post);
+    const result = await window.storage.set(post.id, JSON.stringify(post), true);
+    console.log('Storage result:', result);
+    
+    if (result) {
+        showToast('Post created successfully!', 'success');
                     lastPostTime = now;
                     
                     // Clear form
@@ -3323,12 +3332,13 @@ socket.on('gotHit', (data) => {
                     await loadForumPosts();
                     updateCooldownDisplay();
                 } else {
-                    showToast('Failed to create post. Please try again.', 'error');
-                }
-            } catch (error) {
-                console.error('Error creating post:', error);
-                showToast('Error creating post. Please try again.', 'error');
-            }
+    console.error('Storage returned null/false');
+    showToast('Failed to create post. Storage unavailable.', 'error');
+}
+} catch (error) {
+    console.error('Error creating post:', error);
+    showToast(`Error: ${error.message || 'Unknown error'}`, 'error');
+}
         }
 
         async function loadForumPosts() {
@@ -3468,16 +3478,17 @@ socket.on('gotHit', (data) => {
                 if (Math.hypot(f.x - player.x, f.y - player.y) < player.size + f.size) {
                     player.xp += f.xp;
                     // Send XP update every 10 food
-                    if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
-                        socket.emit('playerUpdate', {
-                            size: player.size,
-                            tier: player.tier,
-                            hp: player.hp,
-                            xp: player.xp,
-                            color: player.color,
-                            animalType: player.animalData.name
-                        });
-                    }
+if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
+    socket.emit('playerUpdate', {
+        size: player.size,
+        tier: player.tier,
+        hp: player.hp,
+        xp: player.xp,
+        color: player.color,
+        animalType: player.animalData.name,
+        animalIndex: player.animalIndex
+    });
+}
                     player.heal(f.healAmount);
                     
                     if (boostCharges < 3) {
