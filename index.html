@@ -1085,23 +1085,44 @@
                     otherPlayers[data.id].x = data.x;
                     otherPlayers[data.id].y = data.y;
                     otherPlayers[data.id].angle = data.angle;
+                    otherPlayers[data.id].vx = data.vx || 0;
+                    otherPlayers[data.id].vy = data.vy || 0;
                 }
             });
             
             socket.on('playerUpdated', (data) => {
                 if (otherPlayers[data.id]) {
-                    otherPlayers[data.id].size = data.size;
-                    otherPlayers[data.id].tier = data.tier;
-                    otherPlayers[data.id].hp = data.hp;
+                    const oldTier = otherPlayers[data.id].tier;
+                    
+                    // If tier changed, they evolved
+                    if (data.tier && data.tier !== oldTier && data.animalIndex !== undefined) {
+                        otherPlayers[data.id].evolve(data.tier, data.animalIndex);
+                    }
+                    
                     otherPlayers[data.id].xp = data.xp;
-                    otherPlayers[data.id].color = data.color;
-                    otherPlayers[data.id].animalType = data.animalType;
                 }
             });
             
             socket.on('playerDisconnected', (playerId) => {
-                delete otherPlayers[playerId];
-            });
+    delete otherPlayers[playerId];
+});
+
+socket.on('gotHit', (data) => {
+    // We got hit by another player!
+    if (player && gameRunning) {
+        player.hp -= data.damage;
+        player.hitFlash = 1;
+        
+        damageTexts.push(new DamageText(player.x, player.y - player.size - 20, data.damage, '#e74c3c'));
+        for (let i = 0; i < 5; i++) {
+            particles.push(new Particle(player.x, player.y, player.color, 'hit'));
+        }
+        
+        if (player.hp <= 0) {
+            playerDied();
+        }
+    }
+});
             
             socket.on('playerDeath', (playerId) => {
                 if (otherPlayers[playerId]) {
@@ -1114,17 +1135,27 @@
         }
         
         function createOtherPlayer(data) {
-            return {
-                id: data.id,
-                x: data.x,
-                y: data.y,
-                angle: data.angle,
-                name: data.name,
-                color: data.color,
-                size: data.size,
-                tier: data.tier,
-                animalType: data.animalType
-            };
+            // Find the animal index from the name
+            let animalIndex = 0;
+            const tierAnimals = TIER_ANIMALS[data.tier || 1];
+            if (tierAnimals) {
+                for (let i = 0; i < tierAnimals.length; i++) {
+                    if (tierAnimals[i].name === data.animalType) {
+                        animalIndex = i;
+                        break;
+                    }
+                }
+            }
+            
+            // Create a real Entity
+            const entity = new Entity(data.x, data.y, data.name, animalIndex, true);
+            entity.id = data.id;
+            entity.tier = data.tier || 1;
+            entity.xp = data.xp || 0;
+            entity.angle = data.angle || 0;
+            entity.isOtherPlayer = true; // Mark as other player
+            
+            return entity;
         }
         async function initAuth() {
             const { data: { session } } = await supabase.auth.getSession();
@@ -1638,7 +1669,9 @@
                     socket.emit('playerMove', {
                         x: this.x,
                         y: this.y,
-                        angle: this.angle
+                        angle: this.angle,
+                        vx: this.vx,
+                        vy: this.vy
                     });
                 }
 
@@ -1897,7 +1930,8 @@
                         hp: this.hp,
                         xp: this.xp,
                         color: this.color,
-                        animalType: this.animalData.name
+                        animalType: this.animalData.name,
+                        animalIndex: this.animalIndex
                     });
                 }
             }
@@ -3179,7 +3213,8 @@
                     tier: player.tier,
                     hp: player.hp,
                     xp: player.xp,
-                    animalType: player.animalData.name
+                    animalType: player.animalData.name,
+                    animalIndex: player.animalIndex
                 });
             }
             gameRunning = true;
@@ -3477,7 +3512,56 @@
                     xpOrbs.splice(i, 1);
                 }
             }
-
+// PLAYER VS PLAYER COMBAT
+            Object.values(otherPlayers).forEach(other => {
+                if (player.isStunned || other.isStunned) return;
+                
+                const dist = Math.hypot(other.x - player.x, other.y - player.y);
+                const minDist = player.size + other.size;
+                
+                if (dist < minDist) {
+                    // They're touching - check who's bigger
+                    if (player.size > other.size * 1.1) {
+                        // Player is bigger - deal damage
+                        const damage = player.damage;
+                        
+                        // Visual feedback
+                        damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
+                        for (let i = 0; i < 5; i++) {
+                            particles.push(new Particle(other.x, other.y, other.color, 'hit'));
+                        }
+                        
+                        // Tell server about hit
+                        if (socket && isConnected) {
+                            socket.emit('playerHit', {
+                                targetId: other.id,
+                                damage: damage
+                            });
+                        }
+                        
+                        player.inCombat = true;
+                        player.lastHitTime = Date.now();
+                        
+                    } else if (other.size > player.size * 1.1) {
+                        // Other player is bigger - take damage
+                        player.hp -= other.damage || 10;
+                        player.hitFlash = 1;
+                        
+                        damageTexts.push(new DamageText(player.x, player.y - player.size - 20, other.damage || 10, '#e74c3c'));
+                        for (let i = 0; i < 5; i++) {
+                            particles.push(new Particle(player.x, player.y, player.color, 'hit'));
+                        }
+                        
+                        player.inCombat = true;
+                        player.lastHitTime = Date.now();
+                        
+                        if (player.hp <= 0) {
+                            playerDied();
+                            return;
+                        }
+                    }
+                }
+            });
             bots.forEach(b => {
                 if (player.isStunned || b.isDead) return;
                 
@@ -3588,73 +3672,10 @@
             particles.forEach(p => p.draw(camera.x, camera.y));
             bots.forEach(b => { if (!b.isDead) b.draw(camera.x, camera.y); });
             if (player) player.draw(camera.x, camera.y, true);
-            Object.values(otherPlayers).forEach(p => {
-                const screenX = p.x - camera.x;
-                const screenY = p.y - camera.y;
-                
-                if (screenX > -100 && screenX < canvas.width + 100 && 
-                    screenY > -100 && screenY < canvas.height + 100) {
-                    
-                    ctx.save();
-                    ctx.translate(screenX, screenY);
-                    ctx.rotate(p.angle + Math.PI/2);
-                    
-                    // Body
-                    ctx.fillStyle = p.color;
-                    ctx.beginPath();
-                    ctx.ellipse(0, 0, p.size * 0.8, p.size, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    // Wings
-                    const wingPhase = (Date.now() / 50) % (Math.PI * 2);
-                    const wingAngle = Math.sin(wingPhase) * 0.3;
-                    
-                    ctx.fillStyle = lightenColor(p.color, 20);
-                    ctx.beginPath();
-                    ctx.ellipse(-p.size * 0.6, 0, p.size * 0.5, p.size * 0.3, wingAngle, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    ctx.beginPath();
-                    ctx.ellipse(p.size * 0.6, 0, p.size * 0.5, p.size * 0.3, -wingAngle, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    // Eyes
-                    ctx.fillStyle = 'white';
-                    ctx.beginPath();
-                    ctx.arc(-p.size * 0.15, -p.size * 0.4, p.size * 0.15, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(p.size * 0.15, -p.size * 0.4, p.size * 0.15, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    ctx.fillStyle = 'black';
-                    ctx.beginPath();
-                    ctx.arc(-p.size * 0.15, -p.size * 0.4, p.size * 0.08, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.arc(p.size * 0.15, -p.size * 0.4, p.size * 0.08, 0, Math.PI * 2);
-                    ctx.fill();
-                    
-                    // Beak
-                    ctx.fillStyle = darkenColor(p.color, 30);
-                    ctx.beginPath();
-                    ctx.moveTo(0, -p.size * 0.6);
-                    ctx.lineTo(-p.size * 0.1, -p.size * 0.8);
-                    ctx.lineTo(p.size * 0.1, -p.size * 0.8);
-                    ctx.closePath();
-                    ctx.fill();
-                    
-                    ctx.restore();
-                    
-                    // Name tag
-                    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-                    ctx.fillRect(screenX - 40, screenY - p.size - 25, 80, 20);
-                    ctx.fillStyle = 'white';
-                    ctx.font = 'bold 12px Nunito';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(p.name, screenX, screenY - p.size - 11);
-                }
-            });
+            // Draw other players using their Entity.draw() method
+Object.values(otherPlayers).forEach(p => {
+    p.draw(camera.x, camera.y, false);
+});
             damageTexts.forEach(d => d.draw(camera.x, camera.y));
         }
 
