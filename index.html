@@ -3119,6 +3119,7 @@
             document.getElementById('leaderboard').style.display = 'block';
             document.getElementById('boost-container').style.display = 'flex';
             document.getElementById('chat-container').style.display = 'block';
+            document.getElementById('top-right-ui').style.display = 'none';
             
             canvas = document.getElementById('gameCanvas');
             ctx = canvas.getContext('2d');
@@ -3610,15 +3611,30 @@
             
             const list = document.getElementById('leaderboard-list');
             if (player) {
-                list.innerHTML = 
-                    '<div class="leaderboard-entry self">' +
-                        '<span>1. ' + player.name + '</span>' +
-                        '<span>' + Math.floor(player.xp) + ' XP</span>' +
-                    '</div>' +
-                    '<div class="leaderboard-entry">' +
-                        '<span>Tier: ' + player.tier + '</span>' +
-                        '<span>' + player.animalData.name + '</span>' +
-                    '</div>';
+                // Create leaderboard with all players
+                const allPlayers = [
+                    { name: player.name, xp: player.xp, tier: player.tier, isSelf: true }
+                ];
+                
+                // Add other players
+                Object.values(otherPlayers).forEach(p => {
+                    allPlayers.push({ name: p.name, xp: p.xp || 0, tier: p.tier || 1, isSelf: false });
+                });
+                
+                // Sort by XP
+                allPlayers.sort((a, b) => b.xp - a.xp);
+                
+                // Build HTML
+                let html = '';
+                allPlayers.slice(0, 5).forEach((p, i) => {
+                    const className = p.isSelf ? 'leaderboard-entry self' : 'leaderboard-entry';
+                    html += '<div class="' + className + '">' +
+                            '<span>' + (i + 1) + '. ' + p.name + '</span>' +
+                            '<span>' + Math.floor(p.xp) + ' XP</span>' +
+                            '</div>';
+                });
+                
+                list.innerHTML = html;
             }
         }
 
@@ -3645,6 +3661,7 @@
             document.getElementById('evolution-bar').style.display = 'none';
             document.getElementById('main-menu').style.display = 'flex';
             document.getElementById('top-left-ui').style.display = 'flex';
+            document.getElementById('top-right-ui').style.display = 'block';
             
             player = null;
             bots = [];
