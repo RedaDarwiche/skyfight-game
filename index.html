@@ -1045,6 +1045,22 @@
                 console.log('Connected to server!');
                 isConnected = true;
                 showToast('Connected to multiplayer!', 'success');
+                
+                // If player already exists (game already started), join immediately
+                if (player && gameRunning) {
+                    socket.emit('playerJoin', {
+                        x: player.x,
+                        y: player.y,
+                        angle: player.angle,
+                        name: player.name,
+                        color: player.color,
+                        size: player.size,
+                        tier: player.tier,
+                        hp: player.hp,
+                        xp: player.xp,
+                        animalType: player.animalData.name
+                    });
+                }
             });
             
             socket.on('disconnect', () => {
@@ -1076,6 +1092,8 @@
                 if (otherPlayers[data.id]) {
                     otherPlayers[data.id].size = data.size;
                     otherPlayers[data.id].tier = data.tier;
+                    otherPlayers[data.id].hp = data.hp;
+                    otherPlayers[data.id].xp = data.xp;
                     otherPlayers[data.id].color = data.color;
                     otherPlayers[data.id].animalType = data.animalType;
                 }
@@ -1870,6 +1888,17 @@
                         }
                         break;
                     }
+                }
+                // Send XP update to server
+                if (socket && isConnected && !this.isBot) {
+                    socket.emit('playerUpdate', {
+                        size: this.size,
+                        tier: this.tier,
+                        hp: this.hp,
+                        xp: this.xp,
+                        color: this.color,
+                        animalType: this.animalData.name
+                    });
                 }
             }
 
@@ -3088,10 +3117,16 @@
 
         function prepareGame() {
             const name = document.getElementById('guest-name').value.trim();
-            if (!name) { showToast("Enter a nickname!", "error"); return; }
+            if (!name) {
+                showToast('Please enter a nickname!', 'error');
+                return;
+            }
             playerName = name;
+            
+            // Connect to server now, before game starts
+            connectToServer();
+            
             document.getElementById('main-menu').style.display = 'none';
-            document.getElementById('top-left-ui').style.display = 'none'; 
             showAnimalSelection();
         }
 
@@ -3114,7 +3149,6 @@
         }
 
         function startGame(animalIndex) {
-            connectToServer();
             document.getElementById('animal-selection').style.display = 'none';
             document.getElementById('leaderboard').style.display = 'block';
             document.getElementById('boost-container').style.display = 'flex';
@@ -3398,6 +3432,17 @@
                 const f = foods[i];
                 if (Math.hypot(f.x - player.x, f.y - player.y) < player.size + f.size) {
                     player.xp += f.xp;
+                    // Send XP update every 10 food
+                    if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
+                        socket.emit('playerUpdate', {
+                            size: player.size,
+                            tier: player.tier,
+                            hp: player.hp,
+                            xp: player.xp,
+                            color: player.color,
+                            animalType: player.animalData.name
+                        });
+                    }
                     player.heal(f.healAmount);
                     
                     if (boostCharges < 3) {
