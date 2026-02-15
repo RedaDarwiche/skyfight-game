@@ -1061,6 +1061,21 @@
                         xp: player.xp,
                         animalType: player.animalData.name
                     });
+                    
+                    // Re-register all local bots with server after reconnect
+                    Object.values(bots).forEach(bot => {
+                        if (!bot.isRemote) {
+                            socket.emit('botSpawned', {
+                                botId: bot.botId,
+                                x: bot.x,
+                                y: bot.y,
+                                tier: bot.tier,
+                                animalIndex: bot.animalIndex,
+                                hp: bot.hp,
+                                maxHp: bot.maxHp
+                            });
+                        }
+                    });
                 }
             });
             
@@ -1155,7 +1170,90 @@ socket.on('chatMessage', (data) => {
     if (chatMessages.length > 5) chatMessages.shift();
     updateChatDisplay();
 });
+
+// === BOT SYNCHRONIZATION SOCKET HANDLERS ===
+socket.on('existingBots', (serverBots) => {
+    // Receive existing bots when joining
+    Object.keys(serverBots).forEach(botId => {
+        const botData = serverBots[botId];
+        if (!bots[botId] && !botData.isDead) {
+            const bot = new Bot(botData.x, botData.y, botId);
+            bot.tier = botData.tier;
+            bot.animalIndex = botData.animalIndex;
+            bot.hp = botData.hp;
+            bot.maxHp = botData.maxHp;
+            bot.isRemote = true;
+            bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
+            bot.updateStats();
+            bots[botId] = bot;
+        }
+    });
+});
+
+socket.on('botSpawnConfirmed', (data) => {
+    // Server confirmed our bot spawn (in case server assigned a different ID)
+    // Usually not needed if client sends botId, but good for validation
+    console.log('Bot spawn confirmed:', data.botId);
+});
+
+socket.on('remoteBotSpawned', (botData) => {
+    // Another player spawned a bot
+    if (!bots[botData.id] && !botData.isDead) {
+        const bot = new Bot(botData.x, botData.y, botData.id);
+        bot.tier = botData.tier;
+        bot.animalIndex = botData.animalIndex;
+        bot.hp = botData.hp;
+        bot.maxHp = botData.maxHp;
+        bot.isRemote = true;
+        bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
+        bot.updateStats();
+        bots[botData.id] = bot;
+    }
+});
+
+socket.on('remoteBotMoved', (data) => {
+    if (bots[data.botId] && bots[data.botId].isRemote) {
+        bots[data.botId].x = data.x;
+        bots[data.botId].y = data.y;
+        bots[data.botId].angle = data.angle;
+    }
+});
+
+socket.on('remoteBotDamaged', (data) => {
+    if (bots[data.botId]) {
+        bots[data.botId].hp = data.hp;
+        bots[data.botId].hitFlash = 1;
+    }
+});
+
+socket.on('remoteBotDied', (data) => {
+    if (bots[data.botId]) {
+        bots[data.botId].isDead = true;
+    }
+});
+
+socket.on('remoteBotRespawned', (botData) => {
+    if (bots[botData.id]) {
+        bots[botData.id].isDead = false;
+        bots[botData.id].x = botData.x;
+        bots[botData.id].y = botData.y;
+        bots[botData.id].hp = botData.hp;
+        bots[botData.id].tier = botData.tier;
+        bots[botData.id].animalIndex = botData.animalIndex;
+        bots[botData.id].animalData = TIER_ANIMALS[botData.tier][botData.animalIndex];
+        bots[botData.id].updateStats();
+    }
+});
+
+socket.on('remoteBotRemoved', (data) => {
+    // Remove bot when owner disconnects
+    if (bots[data.botId]) {
+        delete bots[data.botId];
+    }
+});
+
 socket.on('botDamaged', (data) => {
+    // DEPRECATED - kept for backwards compatibility
     // Update bot on all clients
     if (bots[data.botId]) {
         bots[data.botId].hp = data.hp;
@@ -1352,7 +1450,7 @@ socket.on('botDamaged', (data) => {
         };
 
         let canvas, ctx, camera = { x: 0, y: 0 };
-        let player = null, playerName = '', bots = [], foods = [], particles = [], statusEffects = [], damageTexts = [], xpOrbs = [];
+        let player = null, playerName = '', bots = {}, foods = [], particles = [], statusEffects = [], damageTexts = [], xpOrbs = [];
         let gameRunning = false, mouseX = 0, mouseY = 0, lastUpdateTime = Date.now();
         let boostCharges = 0;
         let dashCooldown = 0;
@@ -1675,17 +1773,17 @@ socket.on('botDamaged', (data) => {
                     // SCORPION BOOST CLAW ATTACK
                     if (this.type === 'scorpion' && !this.isBot) {
                         const clawRange = this.size * 2.5;
-                        bots.forEach(b => {
+                        Object.values(bots).forEach(b => {
                             const dist = Math.hypot(b.x - this.x, b.y - this.y);
                             if (dist < clawRange) {
                                 const clawDamage = this.damage * 1.5;
                                 b.hp -= clawDamage;
                                 b.onHit(clawDamage, this);
                                 damageTexts.push(new DamageText(b.x, b.y - b.size - 20, clawDamage, '#16a085'));
-                                // Broadcast bot damage
+                                // Broadcast bot damage to server (for ALL bots, server is authority)
 if (socket && isConnected) {
     socket.emit('botDamaged', {
-        botId: bots.indexOf(b),
+        botId: b.botId,
         damage: clawDamage,
         hp: b.hp,
         isDead: b.isDead
@@ -1774,7 +1872,7 @@ if (socket && isConnected) {
                 this.abilityCooldown = abilityInfo.cooldown;
                 
                 const range = 180;
-                const targets = bots.filter(b => Math.hypot(b.x - this.x, b.y - this.y) < range);
+                const targets = Object.values(bots).filter(b => Math.hypot(b.x - this.x, b.y - this.y) < range);
                 
                 switch(ability) {
                     case 'stun':
@@ -1830,18 +1928,18 @@ if (socket && isConnected) {
                     case 'strike':
                         this.isDashing = true;
                         this.dashTimer = 0.3;
-                        const strikeTargets = bots.filter(b => {
+                        const strikeTargets = Object.values(bots).filter(b => {
                             const dist = Math.hypot(b.x - this.x, b.y - this.y);
                             return dist < 150;
                         });
                         strikeTargets.forEach(b => {
                             const strikeDamage = this.damage * 3;
                             b.hp -= strikeDamage;
-                            // Broadcast bot damage
+                            // Broadcast bot damage to server (for ALL bots, server is authority)
 if (socket && isConnected) {
     socket.emit('botDamaged', {
-        botId: bots.indexOf(b),
-        damage: clawDamage,
+        botId: b.botId,
+        damage: strikeDamage,
         hp: b.hp,
         isDead: b.isDead
     });
@@ -1912,11 +2010,11 @@ if (socket && isConnected) {
                             statusEffects.push(new StatusEffect(b, 'poison', 6));
                             const damage = this.damage * 1.5;
                             b.hp -= damage;
-                            // Broadcast bot damage
+                            // Broadcast bot damage to server (for ALL bots, server is authority)
 if (socket && isConnected) {
     socket.emit('botDamaged', {
-        botId: bots.indexOf(b),
-        damage: clawDamage,
+        botId: b.botId,
+        damage: damage,
         hp: b.hp,
         isDead: b.isDead
     });
@@ -3022,8 +3120,9 @@ if (socket && isConnected) {
         }
 
         class Bot extends Entity {
-            constructor(x, y) {
+            constructor(x, y, botId = null) {
                 super(x, y, '', Math.floor(Math.random() * 3), true);
+                this.botId = botId || ('bot_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
                 this.targetX = x;
                 this.targetY = y;
                 this.wanderTimer = 0;
@@ -3031,6 +3130,7 @@ if (socket && isConnected) {
                 this.aggroTimer = 0;
                 this.respawnTimer = 0;
                 this.isDead = false;
+                this.isRemote = false; // Track if this bot is from another player
             }
 
             update(dt) {
@@ -3118,11 +3218,30 @@ if (socket && isConnected) {
                 }
 
                 super.update(dt);
+                
+                // Emit bot movement to server (only for local bots, not remote ones)
+                if (!this.isRemote && socket && isConnected) {
+                    // Throttle updates - only send every few frames
+                    if (!this.lastEmitTime || Date.now() - this.lastEmitTime > 100) {
+                        this.lastEmitTime = Date.now();
+                        socket.emit('botMoved', {
+                            botId: this.botId,
+                            x: this.x,
+                            y: this.y,
+                            angle: this.angle
+                        });
+                    }
+                }
             }
 
             die() {
                 this.isDead = true;
                 this.respawnTimer = 5; // Respawn after 5 seconds
+                
+                // Notify server of bot death (only for local bots)
+                if (!this.isRemote && socket && isConnected) {
+                    socket.emit('botDied', { botId: this.botId });
+                }
             }
 
             respawn() {
@@ -3136,6 +3255,18 @@ if (socket && isConnected) {
                 this.hp = this.maxHp;
                 this.xp = 0;
                 this.clearPowerups();
+                
+                // Notify server of bot respawn (only for local bots)
+                if (!this.isRemote && socket && isConnected) {
+                    socket.emit('botRespawned', {
+                        botId: this.botId,
+                        x: this.x,
+                        y: this.y,
+                        hp: this.hp,
+                        tier: this.tier,
+                        animalIndex: this.animalIndex
+                    });
+                }
             }
         }
 
@@ -3271,12 +3402,31 @@ if (socket && isConnected) {
             
             player = new Entity(CANVAS_WIDTH/2, CANVAS_HEIGHT/2, playerName, animalIndex, false);
             
-            foods = []; bots = []; particles = []; statusEffects = []; damageTexts = []; xpOrbs = [];
+            foods = []; bots = {}; particles = []; statusEffects = []; damageTexts = []; xpOrbs = [];
             boostCharges = 0;
             chatMessages = [];
             
             for (let i=0; i<2000; i++) foods.push(new Food());
-            for (let i=0; i<20; i++) bots.push(new Bot(Math.random()*CANVAS_WIDTH, Math.random()*CANVAS_HEIGHT));
+            
+            // Spawn bots and notify server
+            for (let i=0; i<20; i++) {
+                const bot = new Bot(Math.random()*CANVAS_WIDTH, Math.random()*CANVAS_HEIGHT);
+                bots[bot.botId] = bot;
+                
+                // Notify server about this bot spawn
+                if (socket && isConnected) {
+                    socket.emit('botSpawned', {
+                        botId: bot.botId,
+                        x: bot.x,
+                        y: bot.y,
+                        tier: bot.tier,
+                        animalIndex: bot.animalIndex,
+                        hp: bot.hp,
+                        maxHp: bot.maxHp
+                    });
+                }
+            }
+            
             if (socket && isConnected) {
                 socket.emit('playerJoin', {
                     x: player.x,
@@ -3431,6 +3581,224 @@ try {
     } catch (error) {
         console.error('Error loading posts:', error);
     }
+    function displayForumPosts(posts) {
+            const container = document.getElementById('forum-posts-list');
+            if (!container) return;
+            
+            if (posts.length === 0) {
+                container.innerHTML = '<div style="text-align: center; padding: 40px; color: rgba(0,0,0,0.5);">No posts yet. Be the first to post!</div>';
+                return;
+            }
+            
+            container.innerHTML = '';
+            
+            posts.forEach(post => {
+                const postCard = document.createElement('div');
+                postCard.className = 'forum-post-card';
+                postCard.style.cssText = `
+                    background: white;
+                    border-radius: 15px;
+                    padding: 20px;
+                    margin-bottom: 15px;
+                    cursor: pointer;
+                    transition: transform 0.2s;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                `;
+                
+                postCard.onmouseover = () => postCard.style.transform = 'translateY(-3px)';
+                postCard.onmouseout = () => postCard.style.transform = 'translateY(0)';
+                
+                const categoryColors = {
+                    'General': '#3498db',
+                    'Strategy': '#e74c3c',
+                    'Feedback': '#2ecc71',
+                    'Bug Report': '#f39c12'
+                };
+                
+                const timeAgo = getTimeAgoFromISO(post.created_at);
+                
+                postCard.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                        <span style="background: ${categoryColors[post.category] || '#95a5a6'}; color: white; padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: bold;">
+                            ${post.category}
+                        </span>
+                        <span style="color: #7f8c8d; font-size: 0.9rem;">${timeAgo}</span>
+                    </div>
+                    <h3 style="margin: 10px 0; color: #2c3e50; font-size: 1.3rem;">${post.title}</h3>
+                    <p style="color: #7f8c8d; margin: 10px 0; line-height: 1.5;">${post.description.substring(0, 150)}${post.description.length > 150 ? '...' : ''}</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-top: 15px; border-top: 1px solid #ecf0f1;">
+                        <span style="color: #3498db; font-weight: bold;">👤 ${post.author}</span>
+                        <span style="color: #95a5a6; font-size: 0.9rem;">Click to view & comment</span>
+                    </div>
+                `;
+                
+                postCard.onclick = () => viewPost(post);
+                container.appendChild(postCard);
+            });
+        }
+        
+        function getTimeAgoFromISO(isoString) {
+            const postDate = new Date(isoString);
+            const now = new Date();
+            const diff = now - postDate;
+            
+            const seconds = Math.floor(diff / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+            
+            if (days > 0) return days + ' day' + (days > 1 ? 's' : '') + ' ago';
+            if (hours > 0) return hours + ' hour' + (hours > 1 ? 's' : '') + ' ago';
+            if (minutes > 0) return minutes + ' minute' + (minutes > 1 ? 's' : '') + ' ago';
+            return 'just now';
+        }
+        
+        async function viewPost(post) {
+            const modal = document.createElement('div');
+            modal.id = 'post-view-modal';
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.7);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const modalContent = document.createElement('div');
+            modalContent.style.cssText = `
+                background: white;
+                border-radius: 20px;
+                padding: 30px;
+                max-width: 600px;
+                width: 90%;
+                max-height: 80vh;
+                overflow-y: auto;
+            `;
+            
+            const { data: comments } = await supabase
+                .from('forum_comments')
+                .select('*')
+                .eq('post_id', post.id)
+                .order('created_at', { ascending: true });
+            
+            const categoryColors = {
+                'General': '#3498db',
+                'Strategy': '#e74c3c',
+                'Feedback': '#2ecc71',
+                'Bug Report': '#f39c12'
+            };
+            
+            modalContent.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <span style="background: ${categoryColors[post.category] || '#95a5a6'}; color: white; padding: 8px 15px; border-radius: 20px; font-weight: bold;">
+                        ${post.category}
+                    </span>
+                    <button id="close-post-view" style="background: none; border: none; font-size: 2rem; cursor: pointer; color: #7f8c8d;">×</button>
+                </div>
+                
+                <h2 style="color: #2c3e50; margin-bottom: 10px;">${post.title}</h2>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">By <strong>${post.author}</strong> • ${getTimeAgoFromISO(post.created_at)}</p>
+                
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
+                    <p style="color: #2c3e50; line-height: 1.6; white-space: pre-wrap;">${post.description}</p>
+                </div>
+                
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">💬 Comments (${comments ? comments.length : 0})</h3>
+                
+                <div id="comments-list" style="margin-bottom: 20px;">
+                    ${comments && comments.length > 0 ? 
+                        comments.map(c => `
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 10px;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <strong style="color: #3498db;">${c.author}</strong>
+                                    <span style="color: #7f8c8d; font-size: 0.9rem;">${getTimeAgoFromISO(c.created_at)}</span>
+                                </div>
+                                <p style="color: #2c3e50; line-height: 1.5;">${c.comment}</p>
+                            </div>
+                        `).join('') 
+                        : '<p style="color: #7f8c8d; text-align: center; padding: 20px;">No comments yet. Be the first to comment!</p>'
+                    }
+                </div>
+                
+                ${currentUser ? `
+                    <div style="margin-top: 20px;">
+                        <textarea id="comment-input" placeholder="Write a comment..." style="
+                            width: 100%;
+                            min-height: 80px;
+                            padding: 12px;
+                            border: 2px solid #e0e0e0;
+                            border-radius: 10px;
+                            font-family: 'Nunito', sans-serif;
+                            resize: vertical;
+                            margin-bottom: 10px;
+                        "></textarea>
+                        <button id="post-comment-btn" style="
+                            background: linear-gradient(45deg, #4facfe, #00f2fe);
+                            color: white;
+                            border: none;
+                            padding: 12px 25px;
+                            border-radius: 10px;
+                            font-weight: bold;
+                            cursor: pointer;
+                            width: 100%;
+                        ">Post Comment</button>
+                    </div>
+                ` : `
+                    <p style="text-align: center; color: #7f8c8d; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+                        <strong>Login to comment on this post</strong>
+                    </p>
+                `}
+            `;
+            
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+            
+            document.getElementById('close-post-view').onclick = () => {
+                document.body.removeChild(modal);
+            };
+            
+            modal.onclick = (e) => {
+                if (e.target === modal) {
+                    document.body.removeChild(modal);
+                }
+            };
+            
+            if (currentUser) {
+                document.getElementById('post-comment-btn').onclick = async () => {
+                    const commentText = document.getElementById('comment-input').value.trim();
+                    if (!commentText) {
+                        showToast('Please write a comment!', 'error');
+                        return;
+                    }
+                    
+                    try {
+                        const author = currentUser.user_metadata?.username || currentUser.email.split('@')[0];
+                        
+                        const { error } = await supabase
+                            .from('forum_comments')
+                            .insert([{
+                                post_id: post.id,
+                                author: author,
+                                comment: commentText
+                            }]);
+                        
+                        if (error) throw error;
+                        
+                        showToast('Comment posted!', 'success');
+                        document.body.removeChild(modal);
+                        viewPost(post);
+                    } catch (error) {
+                        console.error('Error posting comment:', error);
+                        showToast('Error posting comment', 'error');
+                    }
+                };
+            }
+        }
 }
 
         function updateCooldownDisplay() {
@@ -3506,7 +3874,7 @@ try {
             }
             player.update(dt);
 
-            bots.forEach(b => {
+            Object.values(bots).forEach(b => {
                 if (!b.isDead) b.update(dt);
             });
             
@@ -3539,7 +3907,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                 }
             }
 
-            bots.forEach(b => {
+            Object.values(bots).forEach(b => {
                 if (b.isDead) return;
                 for (let i = foods.length - 1; i >= 0; i--) {
                     const f = foods[i];
@@ -3611,7 +3979,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                 }
             });
 
-            bots.forEach(b => {
+            Object.values(bots).forEach(b => {
                 if (b.hp <= 0 && !b.isDead) {
                     const stolenXp = Math.floor(b.xp);
                     player.xp += stolenXp;
@@ -3669,7 +4037,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
             foods.forEach(f => f.draw(camera.x, camera.y));
             xpOrbs.forEach(o => o.draw(camera.x, camera.y));
             particles.forEach(p => p.draw(camera.x, camera.y));
-            bots.forEach(b => { if (!b.isDead) b.draw(camera.x, camera.y); });
+            Object.values(bots).forEach(b => { if (!b.isDead) b.draw(camera.x, camera.y); });
             if (player) player.draw(camera.x, camera.y, true);
             // Draw other players using their Entity.draw() method
             Object.values(otherPlayers).forEach(p => {
@@ -3763,7 +4131,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
             document.getElementById('top-right-ui').style.display = 'block';
             
             player = null;
-            bots = [];
+            bots = {};
             foods = [];
             particles = [];
             damageTexts = [];
