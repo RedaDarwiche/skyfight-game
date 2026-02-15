@@ -1049,10 +1049,11 @@
                 // If player already exists (game already started), join immediately
                 if (player && gameRunning) {
                     socket.emit('playerJoin', {
-                        x: player.x,
-                        y: player.y,
-                        angle: player.angle,
-                        name: player.name,
+    x: player.x,
+    y: player.y,
+    angle: player.angle,
+    name: playerName,
+    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
                         color: player.color,
                         size: player.size,
                         tier: player.tier,
@@ -1109,11 +1110,24 @@
 // Handle duplicate name error
 socket.on('joinError', (data) => {
     showToast(data.message, 'error');
+    
+    // Completely disconnect the socket
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+    
     isConnected = false;
     gameRunning = false;
+    player = null;
+    otherPlayers = {};
+    
     document.getElementById('main-menu').style.display = 'flex';
     document.getElementById('leaderboard').style.display = 'none';
     document.getElementById('boost-container').style.display = 'none';
+    document.getElementById('ability-display').style.display = 'none';
+    document.getElementById('chat-container').style.display = 'none';
+    document.getElementById('evolution-bar').style.display = 'none';
 });
 
 socket.on('gotHit', (data) => {
@@ -3269,6 +3283,7 @@ if (socket && isConnected) {
                     y: player.y,
                     angle: player.angle,
                     name: player.name,
+                    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
                     color: player.color,
                     size: player.size,
                     tier: player.tier,
@@ -3313,20 +3328,13 @@ if (socket && isConnected) {
         }
 
         async function createForumPost() {
-    // Check if storage is available
-    if (typeof window.storage === 'undefined' || !window.storage) {
-    showToast('Forum only works in Claude Artifacts, not here.', 'error');
-    console.error('Storage API not available');
-    return;
-}
-    
     // Check if logged in first
     if (!currentUser) {
-                showToast('You must be logged in to post!', 'error');
-                closeForum();
-                openAuthModal();
-                return;
-            }
+        showToast('You must be logged in to post!', 'error');
+        closeForum();
+        openAuthModal();
+        return;
+    }
             
             const title = document.getElementById('forum-title').value.trim();
             const description = document.getElementById('forum-description').value.trim();
@@ -3373,30 +3381,37 @@ if (socket && isConnected) {
             };
             
             // Save to storage
+// Save to Supabase
 try {
     console.log('Attempting to create forum post:', post);
-    const result = await window.storage.set(post.id, JSON.stringify(post), true);
-    console.log('Storage result:', result);
     
-    if (result) {
-        showToast('Post created successfully!', 'success');
-                    lastPostTime = now;
-                    
-                    // Clear form
-                    document.getElementById('forum-title').value = '';
-                    document.getElementById('forum-description').value = '';
-                    selectedCategory = null;
-                    document.querySelectorAll('.category-btn').forEach(btn => {
-                        btn.classList.remove('selected');
-                    });
-                    
-                    // Reload posts
-                    await loadForumPosts();
-                    updateCooldownDisplay();
-                } else {
-    console.error('Storage returned null/false');
-    showToast('Failed to create post. Storage unavailable.', 'error');
-}
+    const { data, error } = await supabase
+        .from('forum_posts')
+        .insert([{
+            category: post.category,
+            title: post.title,
+            description: post.description,
+            author: post.author,
+            created_at: new Date().toISOString()
+        }]);
+    
+    if (error) throw error;
+    
+    // Success!
+    showToast('Post created successfully!', 'success');
+    lastPostTime = now;
+    
+    // Clear form
+    document.getElementById('forum-title').value = '';
+    document.getElementById('forum-description').value = '';
+    selectedCategory = null;
+    document.querySelectorAll('.category-btn').forEach(btn => {
+        btn.classList.remove('selected');
+    });
+    
+    // Reload posts
+    await loadForumPosts();
+    updateCooldownDisplay();
 } catch (error) {
     console.error('Error creating post:', error);
     showToast(`Error: ${error.message || 'Unknown error'}`, 'error');
@@ -3404,57 +3419,19 @@ try {
         }
 
         async function loadForumPosts() {
-            try {
-                const keys = await window.storage.list('post_', true);
-                
-                if (!keys || !keys.keys || keys.keys.length === 0) {
-                    document.getElementById('forum-posts-list').innerHTML = 
-                        '<div class="no-posts">No posts yet. Be the first to post!</div>';
-                    return;
-                }
-                
-                // Load all posts
-                const posts = [];
-                for (const key of keys.keys) {
-                    try {
-                        const result = await window.storage.get(key, true);
-                        if (result && result.value) {
-                            const post = JSON.parse(result.value);
-                            posts.push(post);
-                        }
-                    } catch (e) {
-                        console.error('Error loading post:', e);
-                    }
-                }
-                
-                // Sort by timestamp (newest first)
-                posts.sort((a, b) => b.timestamp - a.timestamp);
-                
-                // Display posts
-                let html = '';
-                posts.forEach(post => {
-                    const timeAgo = getTimeAgo(post.timestamp);
-                    html += `
-                        <div class="forum-post">
-                            <div class="post-header">
-                                <span class="post-category ${post.category}">${post.category.toUpperCase()}</span>
-                                <span class="post-author">by ${escapeHtml(post.author)}</span>
-                            </div>
-                            <div class="post-title">${escapeHtml(post.title)}</div>
-                            <div class="post-description">${escapeHtml(post.description)}</div>
-                            <div class="post-time">${timeAgo}</div>
-                        </div>
-                    `;
-                });
-                
-                document.getElementById('forum-posts-list').innerHTML = html;
-                
-            } catch (error) {
-                console.error('Error loading posts:', error);
-                document.getElementById('forum-posts-list').innerHTML = 
-                    '<div class="no-posts">Error loading posts. Please try again.</div>';
-            }
-        }
+    try {
+        const { data: posts, error } = await supabase
+            .from('forum_posts')
+            .select('*')
+            .order('created_at', { ascending: false });
+        
+        if (error) throw error;
+        
+        displayForumPosts(posts || []);
+    } catch (error) {
+        console.error('Error loading posts:', error);
+    }
+}
 
         function updateCooldownDisplay() {
             const now = Date.now();
@@ -3597,7 +3574,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                     const now = Date.now();
                     
                     // Only deal damage when actively dashing
-                    if (player.isDashing && player.size > other.size * 1.1) {
+                    if (player.isDashing && player.size >= other.size) {
                         // Cooldown - only damage once per 2 seconds
                         if (!player.lastPvpHitTime) player.lastPvpHitTime = {};
                         if (player.lastPvpHitTime[other.id] && now - player.lastPvpHitTime[other.id] < 2000) {
@@ -3605,7 +3582,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                         }
                         
                         // Player is bigger AND dashing - deal damage
-                        const damage = player.damage || 10;
+                        const damage = Math.max(10, player.tier * 5);
                         player.lastPvpHitTime[other.id] = now;
                         
                         // Visual feedback on OTHER player
