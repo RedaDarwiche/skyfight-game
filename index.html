@@ -1106,10 +1106,19 @@
             socket.on('playerDisconnected', (playerId) => {
     delete otherPlayers[playerId];
 });
+// Handle duplicate name error
+socket.on('joinError', (data) => {
+    showToast(data.message, 'error');
+    isConnected = false;
+    gameRunning = false;
+    document.getElementById('main-menu').style.display = 'flex';
+    document.getElementById('leaderboard').style.display = 'none';
+    document.getElementById('boost-container').style.display = 'none';
+});
 
 socket.on('gotHit', (data) => {
     // We got hit by another player!
-    if (player && gameRunning) {
+    if (player && gameRunning && !player.isDead) {
         player.hp -= data.damage;
         player.hitFlash = 1;
         
@@ -1119,8 +1128,24 @@ socket.on('gotHit', (data) => {
         }
         
         if (player.hp <= 0) {
+            player.hp = 0;
+            player.isDead = true;
             playerDied();
         }
+    }
+});
+socket.on('chatMessage', (data) => {
+    // Receive chat from other players
+    chatMessages.push({ text: data.text, time: Date.now() });
+    if (chatMessages.length > 5) chatMessages.shift();
+    updateChatDisplay();
+});
+socket.on('botDamaged', (data) => {
+    // Update bot on all clients
+    if (bots[data.botId]) {
+        bots[data.botId].hp = data.hp;
+        bots[data.botId].isDead = data.isDead;
+        bots[data.botId].hitFlash = 1;
     }
 });
             
@@ -1642,6 +1667,15 @@ socket.on('gotHit', (data) => {
                                 b.hp -= clawDamage;
                                 b.onHit(clawDamage, this);
                                 damageTexts.push(new DamageText(b.x, b.y - b.size - 20, clawDamage, '#16a085'));
+                                // Broadcast bot damage
+if (socket && isConnected) {
+    socket.emit('botDamaged', {
+        botId: bots.indexOf(b),
+        damage: clawDamage,
+        hp: b.hp,
+        isDead: b.isDead
+    });
+}
                                 for (let i = 0; i < 8; i++) {
                                     particles.push(new Particle(b.x, b.y, '#16a085', 'hit'));
                                 }
@@ -1788,6 +1822,15 @@ socket.on('gotHit', (data) => {
                         strikeTargets.forEach(b => {
                             const strikeDamage = this.damage * 3;
                             b.hp -= strikeDamage;
+                            // Broadcast bot damage
+if (socket && isConnected) {
+    socket.emit('botDamaged', {
+        botId: bots.indexOf(b),
+        damage: clawDamage,
+        hp: b.hp,
+        isDead: b.isDead
+    });
+}
                             b.onHit(strikeDamage, this);
                             for (let i = 0; i < 10; i++) {
                                 particles.push(new Particle(b.x, b.y, '#27ae60', 'hit'));
@@ -1854,6 +1897,15 @@ socket.on('gotHit', (data) => {
                             statusEffects.push(new StatusEffect(b, 'poison', 6));
                             const damage = this.damage * 1.5;
                             b.hp -= damage;
+                            // Broadcast bot damage
+if (socket && isConnected) {
+    socket.emit('botDamaged', {
+        botId: bots.indexOf(b),
+        damage: clawDamage,
+        hp: b.hp,
+        isDead: b.isDead
+    });
+}
                             b.onHit(damage, this);
                         });
                         for (let i = 0; i < 40; i++) {
@@ -3103,12 +3155,20 @@ socket.on('gotHit', (data) => {
         }
 
         function sendChatMessage(message) {
-            if (!player) return;
-            const fullMessage = player.name + ' ' + message;
-            chatMessages.push({ text: fullMessage, time: Date.now() });
-            if (chatMessages.length > 5) chatMessages.shift();
-            updateChatDisplay();
-        }
+    if (!player) return;
+    const fullMessage = player.name + ' ' + message;
+    chatMessages.push({ text: fullMessage, time: Date.now() });
+    if (chatMessages.length > 5) chatMessages.shift();
+    updateChatDisplay();
+    
+    // Broadcast to other players - send just the message text, not full message
+    if (socket && isConnected) {
+        socket.emit('chatMessage', {
+            text: message, // Send just the message, server adds name
+            playerName: player.name
+        });
+    }
+}
 
         function updateChatDisplay() {
             const chatContainer = document.getElementById('chat-messages');
@@ -3253,10 +3313,11 @@ socket.on('gotHit', (data) => {
 
         async function createForumPost() {
     // Check if storage is available
-    if (!window.storage) {
-        showToast('Storage not available. Please refresh the page.', 'error');
-        return;
-    }
+    if (typeof window.storage === 'undefined' || !window.storage) {
+    showToast('Forum only works in Claude Artifacts, not here.', 'error');
+    console.error('Storage API not available');
+    return;
+}
     
     // Check if logged in first
     if (!currentUser) {
@@ -3523,20 +3584,30 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                     xpOrbs.splice(i, 1);
                 }
             }
-// PLAYER VS PLAYER COMBAT
+// PLAYER VS PLAYER COMBAT (with 2-second cooldown, only during dash)
             Object.values(otherPlayers).forEach(other => {
+                if (!other || other.isDead) return;
                 if (player.isStunned || other.isStunned) return;
                 
                 const dist = Math.hypot(other.x - player.x, other.y - player.y);
                 const minDist = player.size + other.size;
                 
                 if (dist < minDist) {
-                    // They're touching - check who's bigger
-                    if (player.size > other.size * 1.1) {
-                        // Player is bigger - deal damage
-                        const damage = player.damage;
+                    const now = Date.now();
+                    
+                    // Only deal damage when actively dashing
+                    if (player.isDashing && player.size > other.size * 1.1) {
+                        // Cooldown - only damage once per 2 seconds
+                        if (!player.lastPvpHitTime) player.lastPvpHitTime = {};
+                        if (player.lastPvpHitTime[other.id] && now - player.lastPvpHitTime[other.id] < 2000) {
+                            return; // Skip if hit this player recently
+                        }
                         
-                        // Visual feedback
+                        // Player is bigger AND dashing - deal damage
+                        const damage = player.damage || 10;
+                        player.lastPvpHitTime[other.id] = now;
+                        
+                        // Visual feedback on OTHER player
                         damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
                         for (let i = 0; i < 5; i++) {
                             particles.push(new Particle(other.x, other.y, other.color, 'hit'));
@@ -3552,74 +3623,13 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                         
                         player.inCombat = true;
                         player.lastHitTime = Date.now();
-                        
-                    } else if (other.size > player.size * 1.1) {
-                        // Other player is bigger - take damage
-                        player.hp -= other.damage || 10;
-                        player.hitFlash = 1;
-                        
-                        damageTexts.push(new DamageText(player.x, player.y - player.size - 20, other.damage || 10, '#e74c3c'));
-                        for (let i = 0; i < 5; i++) {
-                            particles.push(new Particle(player.x, player.y, player.color, 'hit'));
-                        }
-                        
-                        player.inCombat = true;
-                        player.lastHitTime = Date.now();
-                        
-                        if (player.hp <= 0) {
-                            playerDied();
-                            return;
-                        }
                     }
-                }
-            });
-            bots.forEach(b => {
-                if (player.isStunned || b.isDead) return;
-                
-                const combatDist = Math.hypot(player.x - b.x, player.y - b.y);
-                const touchDist = player.size + b.size;
-                
-                if (combatDist < touchDist) {
-                    const ang = Math.atan2(player.y - b.y, player.x - b.x);
-                    const overlap = touchDist - combatDist;
-                    const pushForce = overlap * 0.5;
                     
-                    player.x += Math.cos(ang) * pushForce * 0.5;
-                    player.y += Math.sin(ang) * pushForce * 0.5;
-                    b.x -= Math.cos(ang) * pushForce * 0.5;
-                    b.y -= Math.sin(ang) * pushForce * 0.5;
-                    
-                    if (player.combatCooldown <= 0) {
-                        player.combatCooldown = 0.5;
-                        
-                        let playerDmg = b.damage;
-                        let botDmg = player.damage;
-                        
-                        if (player.hasRage) botDmg *= 2;
-                        if (b.hasRage) playerDmg *= 2;
-                        
-                        if (!b.hasShield) {
-                            b.onHit(botDmg, player);
-                            b.hp -= botDmg;
-                        }
-                        
-                        if (!b.isStunned) {
-                            const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
-                            let angleDiff = angleToPlayer - b.angle;
-                            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-                            
-                            if (Math.abs(angleDiff) < Math.PI / 2 && !player.hasShield) {
-                                player.onHit(playerDmg, b);
-                                player.hp -= playerDmg;
-                            }
-                        }
-                        
-                        if (player.hp <= 0) {
-                            playerDied();
-                            return;
-                        }
-                    }
+                    // Push players apart slightly to prevent sticking
+                    const pushAngle = Math.atan2(player.y - other.y, player.x - other.x);
+                    const pushForce = 3;
+                    player.x += Math.cos(pushAngle) * pushForce;
+                    player.y += Math.sin(pushAngle) * pushForce;
                 }
             });
 
@@ -3684,9 +3694,11 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
             bots.forEach(b => { if (!b.isDead) b.draw(camera.x, camera.y); });
             if (player) player.draw(camera.x, camera.y, true);
             // Draw other players using their Entity.draw() method
-Object.values(otherPlayers).forEach(p => {
-    p.draw(camera.x, camera.y, false);
-});
+            Object.values(otherPlayers).forEach(p => {
+                if (p && !p.isDead) {
+                    p.draw(camera.x, camera.y, false);
+                }
+            });
             damageTexts.forEach(d => d.draw(camera.x, camera.y));
         }
 
