@@ -3597,24 +3597,56 @@
                     
                     ctx.save();
                     ctx.translate(screenX, screenY);
-                    ctx.rotate(p.angle);
+                    ctx.rotate(p.angle + Math.PI/2);
                     
+                    // Body
                     ctx.fillStyle = p.color;
                     ctx.beginPath();
-                    ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+                    ctx.ellipse(0, 0, p.size * 0.8, p.size, 0, 0, Math.PI * 2);
                     ctx.fill();
                     
+                    // Wings
+                    const wingPhase = (Date.now() / 50) % (Math.PI * 2);
+                    const wingAngle = Math.sin(wingPhase) * 0.3;
+                    
+                    ctx.fillStyle = lightenColor(p.color, 20);
+                    ctx.beginPath();
+                    ctx.ellipse(-p.size * 0.6, 0, p.size * 0.5, p.size * 0.3, wingAngle, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.ellipse(p.size * 0.6, 0, p.size * 0.5, p.size * 0.3, -wingAngle, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Eyes
                     ctx.fillStyle = 'white';
                     ctx.beginPath();
-                    ctx.arc(p.size * 0.3, -p.size * 0.2, p.size * 0.2, 0, Math.PI * 2);
+                    ctx.arc(-p.size * 0.15, -p.size * 0.4, p.size * 0.15, 0, Math.PI * 2);
                     ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(p.size * 0.15, -p.size * 0.4, p.size * 0.15, 0, Math.PI * 2);
+                    ctx.fill();
+                    
                     ctx.fillStyle = 'black';
                     ctx.beginPath();
-                    ctx.arc(p.size * 0.35, -p.size * 0.2, p.size * 0.1, 0, Math.PI * 2);
+                    ctx.arc(-p.size * 0.15, -p.size * 0.4, p.size * 0.08, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(p.size * 0.15, -p.size * 0.4, p.size * 0.08, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // Beak
+                    ctx.fillStyle = darkenColor(p.color, 30);
+                    ctx.beginPath();
+                    ctx.moveTo(0, -p.size * 0.6);
+                    ctx.lineTo(-p.size * 0.1, -p.size * 0.8);
+                    ctx.lineTo(p.size * 0.1, -p.size * 0.8);
+                    ctx.closePath();
                     ctx.fill();
                     
                     ctx.restore();
                     
+                    // Name tag
                     ctx.fillStyle = 'rgba(0,0,0,0.5)';
                     ctx.fillRect(screenX - 40, screenY - p.size - 25, 80, 20);
                     ctx.fillStyle = 'white';
