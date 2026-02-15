@@ -1135,8 +1135,9 @@ socket.on('gotHit', (data) => {
     }
 });
 socket.on('chatMessage', (data) => {
-    // Receive chat from other players
-    chatMessages.push({ text: data.text, time: Date.now() });
+    // Receive chat from other players - combine name + message
+    const fullMessage = data.playerName + ' ' + data.text;
+    chatMessages.push({ text: fullMessage, time: Date.now() });
     if (chatMessages.length > 5) chatMessages.shift();
     updateChatDisplay();
 });
