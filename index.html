@@ -1420,6 +1420,12 @@ function teleportCenter() {
         otherPlayers[data.id].maxHp = data.hp; // Keep maxHp in sync
         otherPlayers[data.id].xp = data.xp;
         
+        // UPDATE POWERUP STATES
+        otherPlayers[data.id].hasShield = data.hasShield || false;
+        otherPlayers[data.id].hasRage = data.hasRage || false;
+        otherPlayers[data.id].hasSpeedBoost = data.hasSpeedBoost || false;
+        otherPlayers[data.id].isInvisible = data.isInvisible || false;
+        
         // Show hit flash if HP decreased
         if (data.hp < (otherPlayers[data.id].lastKnownHp || data.hp)) {
             otherPlayers[data.id].hitFlash = 1;
@@ -1465,18 +1471,22 @@ socket.on('gotHit', (data) => {
             particles.push(new Particle(player.x, player.y, player.color, 'hit'));
         }
         
-        // BROADCAST HP UPDATE TO ALL PLAYERS
-        if (socket && isConnected) {
-            socket.emit('playerUpdate', {
-                size: player.size,
-                tier: player.tier,
-                hp: player.hp,
-                xp: player.xp,
-                color: player.color,
-                animalType: player.animalData.name,
-                animalIndex: player.animalIndex
-            });
-        }
+       // BROADCAST HP UPDATE TO ALL PLAYERS
+if (socket && isConnected) {
+    socket.emit('playerUpdate', {
+        size: player.size,
+        tier: player.tier,
+        hp: player.hp,
+        xp: player.xp,
+        color: player.color,
+        animalType: player.animalData.name,
+        animalIndex: player.animalIndex,
+        hasShield: player.hasShield,
+        hasRage: player.hasRage,
+        hasSpeedBoost: player.hasSpeedBoost,
+        isInvisible: player.isInvisible
+    });
+}
         
         if (player.hp <= 0) {
             player.hp = 0;
@@ -1584,14 +1594,32 @@ socket.on('botDamaged', (data) => {
     }
 });
             
-            socket.on('playerDeath', (playerId) => {
-                if (otherPlayers[playerId]) {
-                    for (let i = 0; i < 20; i++) {
-                        particles.push(new Particle(otherPlayers[playerId].x, otherPlayers[playerId].y, otherPlayers[playerId].color, 'hit'));
-                    }
-                    delete otherPlayers[playerId];
-                }
-            });
+            socket.on('playerDeath', (data) => {
+    const playerId = data.playerId;
+    if (otherPlayers[playerId]) {
+        // Spawn XP orbs like when killing bots
+        const orbCount = 3 + Math.floor(data.tier * 2);
+        const xpPerOrb = Math.floor((20 + data.tier * 15) / orbCount);
+        for (let i = 0; i < orbCount; i++) {
+            xpOrbs.push(new XpOrb(data.x, data.y, xpPerOrb));
+        }
+        
+        // Give XP to local player (you get XP from their death)
+        if (player) {
+            const stolenXp = Math.floor(data.xp);
+            player.xp += stolenXp;
+            if (stolenXp > 0) {
+                damageTexts.push(new DamageText(data.x, data.y - 50, -stolenXp, '#f1c40f'));
+            }
+        }
+        
+        // Death particles
+        for (let i = 0; i < 20; i++) {
+            particles.push(new Particle(otherPlayers[playerId].x, otherPlayers[playerId].y, otherPlayers[playerId].color, 'hit'));
+        }
+        delete otherPlayers[playerId];
+    }
+});
         }
         
         function createOtherPlayer(data) {
@@ -2275,6 +2303,17 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Lava Stun Activated!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'poison':
@@ -2285,6 +2324,17 @@ if (socket && isConnected) {
                             }
                         });
                         showToast('Poison Sting!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'speed':
@@ -2294,6 +2344,17 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#3498db', 'normal'));
                         }
                         showToast('Swift Flight!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'rage':
@@ -2303,6 +2364,17 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#e74c3c', 'fire'));
                         }
                         showToast('Fury Activated!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'strike':
@@ -2333,6 +2405,17 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#27ae60', 'normal'));
                         }
                         showToast('Ambush Strike!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'invisible':
@@ -2342,6 +2425,17 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#95a5a6', 'normal'));
                         }
                         showToast('Camouflage!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'fear':
@@ -2365,6 +2459,17 @@ if (socket && isConnected) {
                         }
                         
                         showToast('Intimidate!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'shield':
@@ -2379,6 +2484,17 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Iron Shell!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'venom':
@@ -2407,6 +2523,17 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Venom Blast!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                         
                     case 'regenerate':
@@ -2417,6 +2544,17 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#27ae60', 'normal'));
                         }
                         showToast('Regeneration!', 'success');
+                        if (socket && isConnected && !this.isBot) {
+    socket.emit('playerUpdate', {
+        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        color: this.color, animalType: this.animalData.name,
+        animalIndex: this.animalIndex,
+        hasShield: this.hasShield,
+        hasRage: this.hasRage,
+        hasSpeedBoost: this.hasSpeedBoost,
+        isInvisible: this.isInvisible
+    });
+}
                         break;
                 }
                 
@@ -2493,13 +2631,13 @@ if (socket && isConnected) {
                 for (let i = 0; i < 20; i++) particles.push(new Particle(this.x, this.y, '#ffffff'));
                 
                 if (this === player) {
-                    showToast('Evolved to ' + this.animalData.name + '!', 'success');
-                    sendChatMessage('evolved to ' + this.animalData.name + '!');
-                    if (this.animalData.ability) {
-                        document.getElementById('ability-display').style.display = 'block';
-                    }
-                    hideEvolutionBar();
-                }
+    showToast('Evolved to ' + this.animalData.name + '!', 'success');
+    // REMOVED: sendChatMessage('evolved to ' + this.animalData.name + '!');
+    if (this.animalData.ability) {
+        document.getElementById('ability-display').style.display = 'block';
+    }
+    hideEvolutionBar();
+}
             }
 
             takeDamage(amount) {
@@ -4647,13 +4785,18 @@ Object.values(bots).forEach(b => {
         }
 
         function playerDied() {
-            gameRunning = false;
-            if (socket && isConnected) {
-                socket.emit('playerDied');
-            }
-            finalStats.tier = player.tier;
-            finalStats.xp = Math.floor(player.xp);
-            finalStats.animal = player.animalData.name;
+    gameRunning = false;
+    if (socket && isConnected) {
+        socket.emit('playerDied', {
+            xp: player.xp,
+            tier: player.tier,
+            x: player.x,
+            y: player.y
+        });
+    }
+    finalStats.tier = player.tier;
+    finalStats.xp = Math.floor(player.xp);
+    finalStats.animal = player.animalData.name;
             
             document.getElementById('death-stats').textContent = 
                 'You reached Tier ' + finalStats.tier + ' as a ' + finalStats.animal + ' with ' + finalStats.xp + ' XP';
