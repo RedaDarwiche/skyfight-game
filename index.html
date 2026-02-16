@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SkyFight.io - Updated</title>
+    <title>SkyFight.io - Admin Fixed</title>
     <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
@@ -59,14 +59,17 @@
             transition: transform 0.2s;
         }
         #nav-login-btn:hover { transform: scale(1.05); }
+        
         #top-right-ui {
             position: absolute;
             top: 20px;
             right: 20px;
             z-index: 20;
+            display: flex;
+            gap: 10px;
         }
 
-        #forum-nav-btn {
+        #forum-nav-btn, #admin-panel-btn {
             background: linear-gradient(45deg, var(--sky-dark), var(--sky-light));
             color: white;
             border: 2px solid white;
@@ -78,24 +81,15 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
             transition: transform 0.2s;
         }
-        #forum-nav-btn:hover { transform: scale(1.05); }
-
+        
         #admin-panel-btn {
             background: linear-gradient(45deg, #f39c12, #e74c3c);
-            color: white;
-            border: 2px solid white;
-            padding: 16px 32px;
-            border-radius: 50px;
-            font-family: 'Fredoka One', cursive;
-            font-size: 1.3rem;
-            cursor: pointer;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1), 0 0 20px rgba(243, 156, 18, 0.3);
-            transition: transform 0.2s;
-            margin-left: 10px;
+            display: none;
         }
-        #admin-panel-btn:hover { 
+        
+        #forum-nav-btn:hover, #admin-panel-btn:hover { 
             transform: scale(1.05);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.15), 0 0 30px rgba(243, 156, 18, 0.5);
         }
 
         #profile-card {
@@ -136,6 +130,72 @@
             width: 100%;
             font-weight: bold;
             margin-top: 10px;
+        }
+
+        /* CUSTOM CONFIRMATION DIALOG */
+        #custom-confirm {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .confirm-box {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 400px;
+            width: 90%;
+            animation: popIn 0.3s;
+        }
+        
+        .confirm-box h3 {
+            font-family: 'Fredoka One';
+            color: #e74c3c;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+        
+        .confirm-box p {
+            color: #555;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        
+        .confirm-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .confirm-btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-family: 'Fredoka One';
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .confirm-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .confirm-btn.yes {
+            background: linear-gradient(45deg, #e74c3c, #c0392b);
+            color: white;
+        }
+        
+        .confirm-btn.no {
+            background: #ecf0f1;
+            color: #555;
         }
 
         #main-menu {
@@ -654,6 +714,7 @@
         #toast.show { bottom: 150px; }
         #toast.success { background: var(--boost-green); }
         #toast.error { background: #ff6b6b; }
+        
         /* FORUM STYLES */
         #forum-modal {
             display: none;
@@ -894,10 +955,37 @@
             padding: 40px;
             font-size: 1.1rem;
         }
+        
+        .admin-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9rem;
+            transition: transform 0.2s;
+        }
+        .admin-btn:hover {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body>
     <canvas id="gameCanvas"></canvas>
+
+    <!-- CUSTOM CONFIRMATION DIALOG -->
+    <div id="custom-confirm">
+        <div class="confirm-box">
+            <h3 id="confirm-title">Confirm Action</h3>
+            <p id="confirm-message">Are you sure?</p>
+            <div class="confirm-buttons">
+                <button class="confirm-btn no" onclick="confirmNo()">Cancel</button>
+                <button class="confirm-btn yes" onclick="confirmYes()">Delete</button>
+            </div>
+        </div>
+    </div>
 
     <div id="top-left-ui">
         <button id="nav-login-btn">Login</button>
@@ -909,6 +997,7 @@
             <button class="logout-btn" onclick="handleLogout()">Logout</button>
         </div>
     </div>
+    
     <div id="top-right-ui">
         <button id="forum-nav-btn" onclick="openForum()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
@@ -918,11 +1007,7 @@
             </svg>
             Forum
         </button>
-        <button id="admin-panel-btn" onclick="showAdminPanel()" style="display: none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle; margin-right: 5px;">
-                <circle cx="12" cy="12" r="3"></circle>
-                <path d="M12 1v6m0 6v6m4.22-13.78l-4.24 4.24M8.46 15.54l4.24 4.24m4.24-4.24l-4.24-4.24M1 12h6m6 0h6"></path>
-            </svg>
+        <button id="admin-panel-btn" onclick="showAdminPanel()">
             👑 Admin
         </button>
     </div>
@@ -1021,7 +1106,8 @@
     </div>
 
     <div id="toast"></div>
-     <!-- FORUM MODAL -->
+    
+    <!-- FORUM MODAL -->
     <div id="forum-modal">
         <div class="forum-container">
             <div class="forum-header">
@@ -1030,7 +1116,6 @@
             </div>
             
             <div class="forum-content">
-                <!-- Create Post Section -->
                 <div class="forum-create-section">
                     <h3>Create a Post</h3>
                     
@@ -1048,7 +1133,6 @@
                     <div class="cooldown-text" id="forum-cooldown" style="display: none;"></div>
                 </div>
                 
-                <!-- Posts List Section -->
                 <div class="forum-posts-section">
                     <h3>Recent Posts</h3>
                     <div id="forum-posts-list">
@@ -1057,28 +1141,46 @@
                 </div>
             </div>
         </div>
-    </div>   
+    </div>
+    
     <script>
         const SUPABASE_URL = 'https://jppfsqkshcmwskcdsqis.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwcGZzcWtzaGNtd3NrY2RzcWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjczMzgsImV4cCI6MjA4NjUwMzMzOH0.ACkiOnXuKGnzKTqi2HSLggktIzrRWOFLje-dp20dpqU';
-        // Create the client instance and overwrite the global variable
         supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         let currentUser = null;
         let socket = null;
         let isConnected = false;
         let otherPlayers = {};
-        const SERVER_URL = 'https://skyfight-server.onrender.com'; // We'll replace this later
+        const SERVER_URL = 'https://skyfight-server.onrender.com';
         
         // === ADMIN/OWNER SYSTEM ===
         const OWNER_EMAIL = 'redadarwichepaypal@gmail.com'; // CHANGE THIS TO YOUR EMAIL!
+        let godMode = false;
         
         function isOwner() {
             return currentUser && currentUser.email === OWNER_EMAIL;
         }
         
-        function getDisplayName(user) {
-            const name = user?.user_metadata?.username || user?.email?.split('@')[0] || 'Player';
-            return isOwner() ? name : name;
+        // Custom confirmation dialog system
+        let confirmCallback = null;
+        
+        function customConfirm(title, message, callback) {
+            document.getElementById('confirm-title').textContent = title;
+            document.getElementById('confirm-message').textContent = message;
+            confirmCallback = callback;
+            document.getElementById('custom-confirm').style.display = 'flex';
+        }
+        
+        function confirmYes() {
+            document.getElementById('custom-confirm').style.display = 'none';
+            if (confirmCallback) confirmCallback(true);
+            confirmCallback = null;
+        }
+        
+        function confirmNo() {
+            document.getElementById('custom-confirm').style.display = 'none';
+            if (confirmCallback) confirmCallback(false);
+            confirmCallback = null;
         }
         
         function showAdminPanel() {
@@ -1095,7 +1197,7 @@
                 left: 0;
                 width: 100%;
                 height: 100%;
-                background: rgba(0,0,0,0.8);
+                background: rgba(0,0,0,0.85);
                 display: flex;
                 justify-content: center;
                 align-items: center;
@@ -1107,60 +1209,83 @@
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 border-radius: 20px;
                 padding: 30px;
-                max-width: 500px;
+                max-width: 700px;
                 width: 90%;
-                max-height: 80vh;
+                max-height: 90vh;
                 overflow-y: auto;
                 box-shadow: 0 20px 60px rgba(0,0,0,0.5);
             `;
             
+            const inGame = player && gameRunning;
+            
             panel.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <h2 style="color: white; margin: 0; font-size: 1.8rem;">👑 Owner Panel</h2>
+                    <h2 style="color: white; margin: 0; font-size: 1.8rem;">👑 Admin Panel</h2>
                     <button id="close-admin-panel" style="background: none; border: none; color: white; font-size: 2rem; cursor: pointer;">×</button>
                 </div>
                 
-                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin-bottom: 20px;">
-                    <h3 style="color: white; margin-top: 0;">Transform Into Animal</h3>
+                ${inGame ? `
+                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                    <h3 style="color: white; margin-top: 0; margin-bottom: 15px;">⚡ God Powers</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <button onclick="adminGodMode()" class="admin-btn" id="godmode-btn">🛡️ God Mode: ${godMode ? 'ON' : 'OFF'}</button>
+                        <button onclick="adminFullHP()" class="admin-btn">❤️ Full HP</button>
+                        <button onclick="adminSetXP()" class="admin-btn">⭐ Set XP</button>
+                        <button onclick="adminInfiniteBoost()" class="admin-btn">🚀 Max Boosts</button>
+                    </div>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                    <h3 style="color: white; margin-top: 0; margin-bottom: 15px;">🌍 Teleport</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                        <button onclick="adminTeleport('center')" class="admin-btn">🎯 Center</button>
+                        <button onclick="adminTeleport('random')" class="admin-btn">🎲 Random</button>
+                        <button onclick="adminTeleport('custom')" class="admin-btn">📍 Custom</button>
+                    </div>
+                </div>
+                ` : ''}
+                
+                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                    <h3 style="color: white; margin-top: 0;">🦋 Transform ${inGame ? '' : '(Start game first)'}</h3>
                     <div id="animal-transform-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 300px; overflow-y: auto;">
                     </div>
                 </div>
                 
+                ${inGame ? `
+                <div style="background: rgba(255,255,255,0.15); padding: 20px; border-radius: 15px; margin-bottom: 15px;">
+                    <h3 style="color: white; margin-top: 0; margin-bottom: 15px;">🤖 World Controls</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <button onclick="adminSpawnBot()" class="admin-btn">➕ Spawn Bot</button>
+                        <button onclick="adminClearBots()" class="admin-btn">❌ Clear Bots</button>
+                    </div>
+                </div>
+                ` : ''}
+                
                 <div style="background: rgba(255,255,255,0.15); padding: 15px; border-radius: 15px; text-align: center; color: white;">
                     <p style="margin: 5px 0;"><strong>Owner Privileges Active</strong></p>
-                    <p style="margin: 5px 0; font-size: 0.9rem; opacity: 0.8;">✓ Owner badge displayed in-game and forums</p>
-                    <p style="margin: 5px 0; font-size: 0.9rem; opacity: 0.8;">✓ Can delete any forum post or comment</p>
+                    <p style="margin: 5px 0; font-size: 0.9rem; opacity: 0.8;">✓ Owner badge in-game & forums</p>
+                    <p style="margin: 5px 0; font-size: 0.9rem; opacity: 0.8;">✓ Delete any post/comment</p>
                 </div>
             `;
             
             modal.appendChild(panel);
             document.body.appendChild(modal);
             
-            // Populate animal transform buttons
+            // Populate animals
             const animalList = document.getElementById('animal-transform-list');
             Object.keys(TIER_ANIMALS).forEach(tier => {
                 TIER_ANIMALS[tier].forEach((animal, index) => {
                     const btn = document.createElement('button');
                     btn.textContent = animal.name;
-                    btn.style.cssText = `
-                        background: ${animal.color};
-                        color: white;
-                        border: none;
-                        padding: 10px;
-                        border-radius: 10px;
-                        cursor: pointer;
-                        font-weight: bold;
-                        font-size: 0.9rem;
-                        transition: transform 0.2s;
-                    `;
-                    btn.onmouseover = () => btn.style.transform = 'scale(1.05)';
-                    btn.onmouseout = () => btn.style.transform = 'scale(1)';
+                    btn.className = 'admin-btn';
+                    btn.style.background = animal.color;
                     btn.onclick = () => {
                         if (player && gameRunning) {
                             player.tier = parseInt(tier);
                             player.animalIndex = index;
-                            player.setAnimal(parseInt(tier), index);
-                            player.hp = player.maxHp; // Full heal
+                            player.animalData = animal;
+                            player.updateStats();
+                            player.hp = player.maxHp;
                             showToast(`Transformed into ${animal.name}!`, 'success');
                             document.body.removeChild(modal);
                         } else {
@@ -1171,16 +1296,88 @@
                 });
             });
             
-            // Close button
             document.getElementById('close-admin-panel').onclick = () => {
                 document.body.removeChild(modal);
             };
             
             modal.onclick = (e) => {
-                if (e.target === modal) {
-                    document.body.removeChild(modal);
-                }
+                if (e.target === modal) document.body.removeChild(modal);
             };
+        }
+        
+        // Admin functions
+        function adminGodMode() {
+            godMode = !godMode;
+            showToast(`God Mode ${godMode ? 'ON' : 'OFF'}`, 'success');
+            document.getElementById('godmode-btn').textContent = `🛡️ God Mode: ${godMode ? 'ON' : 'OFF'}`;
+        }
+        
+        function adminFullHP() {
+            if (player) {
+                player.hp = player.maxHp;
+                showToast('HP Restored!', 'success');
+            }
+        }
+        
+        function adminSetXP() {
+            const xp = prompt('Enter XP amount:');
+            if (xp && player) {
+                player.xp = parseInt(xp);
+                showToast(`XP set to ${xp}!`, 'success');
+            }
+        }
+        
+        function adminInfiniteBoost() {
+            if (player) {
+                boostCharges = 3;
+                showToast('Boosts Maxed!', 'success');
+            }
+        }
+        
+        function adminTeleport(type) {
+            if (!player) return;
+            if (type === 'center') {
+                player.x = CANVAS_WIDTH / 2;
+                player.y = CANVAS_HEIGHT / 2;
+            } else if (type === 'random') {
+                player.x = Math.random() * CANVAS_WIDTH;
+                player.y = Math.random() * CANVAS_HEIGHT;
+            } else if (type === 'custom') {
+                const x = prompt('Enter X coordinate (0-8000):');
+                const y = prompt('Enter Y coordinate (0-8000):');
+                if (x && y) {
+                    player.x = Math.max(0, Math.min(CANVAS_WIDTH, parseInt(x)));
+                    player.y = Math.max(0, Math.min(CANVAS_HEIGHT, parseInt(y)));
+                }
+            }
+            showToast('Teleported!', 'success');
+        }
+        
+        function adminSpawnBot() {
+            if (!player) return;
+            const bot = new Bot(player.x + 100, player.y + 100);
+            bots[bot.botId] = bot;
+            if (socket && isConnected) {
+                socket.emit('botSpawned', {
+                    botId: bot.botId,
+                    x: bot.x,
+                    y: bot.y,
+                    tier: bot.tier,
+                    animalIndex: bot.animalIndex,
+                    hp: bot.hp,
+                    maxHp: bot.maxHp
+                });
+            }
+            showToast('Bot Spawned!', 'success');
+        }
+        
+        function adminClearBots() {
+            Object.keys(bots).forEach(botId => {
+                if (!bots[botId].isRemote) {
+                    delete bots[botId];
+                }
+            });
+            showToast('Local Bots Cleared!', 'success');
         }
         
         function connectToServer() {
@@ -1193,14 +1390,13 @@
                 isConnected = true;
                 showToast('Connected to multiplayer!', 'success');
                 
-                // If player already exists (game already started), join immediately
                 if (player && gameRunning) {
                     socket.emit('playerJoin', {
-    x: player.x,
-    y: player.y,
-    angle: player.angle,
-    name: playerName,
-    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
+                        x: player.x,
+                        y: player.y,
+                        angle: player.angle,
+                        name: playerName,
+                        userId: currentUser ? currentUser.id : null,
                         color: player.color,
                         size: player.size,
                         tier: player.tier,
@@ -1209,7 +1405,6 @@
                         animalType: player.animalData.name
                     });
                     
-                    // Re-register all local bots with server after reconnect
                     Object.values(bots).forEach(bot => {
                         if (!bot.isRemote) {
                             socket.emit('botSpawned', {
@@ -1256,158 +1451,140 @@
             socket.on('playerUpdated', (data) => {
                 if (otherPlayers[data.id]) {
                     const oldTier = otherPlayers[data.id].tier;
-                    
-                    // If tier changed, they evolved
                     if (data.tier && data.tier !== oldTier && data.animalIndex !== undefined) {
                         otherPlayers[data.id].evolve(data.tier, data.animalIndex);
                     }
-                    
                     otherPlayers[data.id].xp = data.xp;
                 }
             });
             
             socket.on('playerDisconnected', (playerId) => {
-    delete otherPlayers[playerId];
-});
-// Handle duplicate name error
-socket.on('joinError', (data) => {
-    showToast(data.message, 'error');
-    
-    // Completely disconnect the socket
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
-    
-    isConnected = false;
-    gameRunning = false;
-    player = null;
-    otherPlayers = {};
-    
-    document.getElementById('main-menu').style.display = 'flex';
-    document.getElementById('leaderboard').style.display = 'none';
-    document.getElementById('boost-container').style.display = 'none';
-    document.getElementById('ability-display').style.display = 'none';
-    document.getElementById('chat-container').style.display = 'none';
-    document.getElementById('evolution-bar').style.display = 'none';
-});
-
-socket.on('gotHit', (data) => {
-    // We got hit by another player!
-    if (player && gameRunning && !player.isDead) {
-        player.hp -= data.damage;
-        player.hitFlash = 1;
-        
-        damageTexts.push(new DamageText(player.x, player.y - player.size - 20, data.damage, '#e74c3c'));
-        for (let i = 0; i < 5; i++) {
-            particles.push(new Particle(player.x, player.y, player.color, 'hit'));
-        }
-        
-        if (player.hp <= 0) {
-            player.hp = 0;
-            player.isDead = true;
-            playerDied();
-        }
-    }
-});
-socket.on('chatMessage', (data) => {
-    // Receive chat from other players - combine name + message
-    const fullMessage = data.playerName + ' ' + data.text;
-    chatMessages.push({ text: fullMessage, time: Date.now() });
-    if (chatMessages.length > 5) chatMessages.shift();
-    updateChatDisplay();
-});
-
-// === BOT SYNCHRONIZATION SOCKET HANDLERS ===
-socket.on('existingBots', (serverBots) => {
-    // Receive existing bots when joining
-    Object.keys(serverBots).forEach(botId => {
-        const botData = serverBots[botId];
-        if (!bots[botId] && !botData.isDead) {
-            const bot = new Bot(botData.x, botData.y, botId);
-            bot.tier = botData.tier;
-            bot.animalIndex = botData.animalIndex;
-            bot.hp = botData.hp;
-            bot.maxHp = botData.maxHp;
-            bot.isRemote = true;
-            bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
-            bot.updateStats();
-            bots[botId] = bot;
-        }
-    });
-});
-
-socket.on('botSpawnConfirmed', (data) => {
-    // Server confirmed our bot spawn (in case server assigned a different ID)
-    // Usually not needed if client sends botId, but good for validation
-    console.log('Bot spawn confirmed:', data.botId);
-});
-
-socket.on('remoteBotSpawned', (botData) => {
-    // Another player spawned a bot
-    if (!bots[botData.id] && !botData.isDead) {
-        const bot = new Bot(botData.x, botData.y, botData.id);
-        bot.tier = botData.tier;
-        bot.animalIndex = botData.animalIndex;
-        bot.hp = botData.hp;
-        bot.maxHp = botData.maxHp;
-        bot.isRemote = true;
-        bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
-        bot.updateStats();
-        bots[botData.id] = bot;
-    }
-});
-
-socket.on('remoteBotMoved', (data) => {
-    if (bots[data.botId] && bots[data.botId].isRemote) {
-        bots[data.botId].x = data.x;
-        bots[data.botId].y = data.y;
-        bots[data.botId].angle = data.angle;
-    }
-});
-
-socket.on('remoteBotDamaged', (data) => {
-    if (bots[data.botId]) {
-        bots[data.botId].hp = data.hp;
-        bots[data.botId].hitFlash = 1;
-    }
-});
-
-socket.on('remoteBotDied', (data) => {
-    if (bots[data.botId]) {
-        bots[data.botId].isDead = true;
-    }
-});
-
-socket.on('remoteBotRespawned', (botData) => {
-    if (bots[botData.id]) {
-        bots[botData.id].isDead = false;
-        bots[botData.id].x = botData.x;
-        bots[botData.id].y = botData.y;
-        bots[botData.id].hp = botData.hp;
-        bots[botData.id].tier = botData.tier;
-        bots[botData.id].animalIndex = botData.animalIndex;
-        bots[botData.id].animalData = TIER_ANIMALS[botData.tier][botData.animalIndex];
-        bots[botData.id].updateStats();
-    }
-});
-
-socket.on('remoteBotRemoved', (data) => {
-    // Remove bot when owner disconnects
-    if (bots[data.botId]) {
-        delete bots[data.botId];
-    }
-});
-
-socket.on('botDamaged', (data) => {
-    // DEPRECATED - kept for backwards compatibility
-    // Update bot on all clients
-    if (bots[data.botId]) {
-        bots[data.botId].hp = data.hp;
-        bots[data.botId].isDead = data.isDead;
-        bots[data.botId].hitFlash = 1;
-    }
-});
+                delete otherPlayers[playerId];
+            });
+            
+            socket.on('joinError', (data) => {
+                showToast(data.message, 'error');
+                if (socket) {
+                    socket.disconnect();
+                    socket = null;
+                }
+                isConnected = false;
+                gameRunning = false;
+                player = null;
+                otherPlayers = {};
+                document.getElementById('main-menu').style.display = 'flex';
+                document.getElementById('leaderboard').style.display = 'none';
+                document.getElementById('boost-container').style.display = 'none';
+                document.getElementById('ability-display').style.display = 'none';
+                document.getElementById('chat-container').style.display = 'none';
+                document.getElementById('evolution-bar').style.display = 'none';
+            });
+            
+            socket.on('gotHit', (data) => {
+                if (player && gameRunning && !player.isDead && !godMode) {
+                    player.hp -= data.damage;
+                    player.hitFlash = 1;
+                    damageTexts.push(new DamageText(player.x, player.y - player.size - 20, data.damage, '#e74c3c'));
+                    for (let i = 0; i < 5; i++) {
+                        particles.push(new Particle(player.x, player.y, player.color, 'hit'));
+                    }
+                    if (player.hp <= 0) {
+                        player.hp = 0;
+                        player.isDead = true;
+                        playerDied();
+                    }
+                }
+            });
+            
+            socket.on('chatMessage', (data) => {
+                const fullMessage = data.playerName + ' ' + data.text;
+                chatMessages.push({ text: fullMessage, time: Date.now() });
+                if (chatMessages.length > 5) chatMessages.shift();
+                updateChatDisplay();
+            });
+            
+            socket.on('existingBots', (serverBots) => {
+                Object.keys(serverBots).forEach(botId => {
+                    const botData = serverBots[botId];
+                    if (!bots[botId] && !botData.isDead) {
+                        const bot = new Bot(botData.x, botData.y, botId);
+                        bot.tier = botData.tier;
+                        bot.animalIndex = botData.animalIndex;
+                        bot.hp = botData.hp;
+                        bot.maxHp = botData.maxHp;
+                        bot.isRemote = true;
+                        bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
+                        bot.updateStats();
+                        bots[botId] = bot;
+                    }
+                });
+            });
+            
+            socket.on('botSpawnConfirmed', (data) => {
+                console.log('Bot spawn confirmed:', data.botId);
+            });
+            
+            socket.on('remoteBotSpawned', (botData) => {
+                if (!bots[botData.id] && !botData.isDead) {
+                    const bot = new Bot(botData.x, botData.y, botData.id);
+                    bot.tier = botData.tier;
+                    bot.animalIndex = botData.animalIndex;
+                    bot.hp = botData.hp;
+                    bot.maxHp = botData.maxHp;
+                    bot.isRemote = true;
+                    bot.animalData = TIER_ANIMALS[bot.tier][bot.animalIndex];
+                    bot.updateStats();
+                    bots[botData.id] = bot;
+                }
+            });
+            
+            socket.on('remoteBotMoved', (data) => {
+                if (bots[data.botId] && bots[data.botId].isRemote) {
+                    bots[data.botId].x = data.x;
+                    bots[data.botId].y = data.y;
+                    bots[data.botId].angle = data.angle;
+                }
+            });
+            
+            socket.on('remoteBotDamaged', (data) => {
+                if (bots[data.botId]) {
+                    bots[data.botId].hp = data.hp;
+                    bots[data.botId].hitFlash = 1;
+                }
+            });
+            
+            socket.on('remoteBotDied', (data) => {
+                if (bots[data.botId]) {
+                    bots[data.botId].isDead = true;
+                }
+            });
+            
+            socket.on('remoteBotRespawned', (botData) => {
+                if (bots[botData.id]) {
+                    bots[botData.id].isDead = false;
+                    bots[botData.id].x = botData.x;
+                    bots[botData.id].y = botData.y;
+                    bots[botData.id].hp = botData.hp;
+                    bots[botData.id].tier = botData.tier;
+                    bots[botData.id].animalIndex = botData.animalIndex;
+                    bots[botData.id].animalData = TIER_ANIMALS[botData.tier][botData.animalIndex];
+                    bots[botData.id].updateStats();
+                }
+            });
+            
+            socket.on('remoteBotRemoved', (data) => {
+                if (bots[data.botId]) {
+                    delete bots[data.botId];
+                }
+            });
+            
+            socket.on('botDamaged', (data) => {
+                if (bots[data.botId]) {
+                    bots[data.botId].hp = data.hp;
+                    bots[data.botId].isDead = data.isDead;
+                    bots[data.botId].hitFlash = 1;
+                }
+            });
             
             socket.on('playerDeath', (playerId) => {
                 if (otherPlayers[playerId]) {
@@ -1420,7 +1597,6 @@ socket.on('botDamaged', (data) => {
         }
         
         function createOtherPlayer(data) {
-            // Find the animal index from the name
             let animalIndex = 0;
             const tierAnimals = TIER_ANIMALS[data.tier || 1];
             if (tierAnimals) {
@@ -1432,16 +1608,16 @@ socket.on('botDamaged', (data) => {
                 }
             }
             
-            // Create a real Entity
             const entity = new Entity(data.x, data.y, data.name, animalIndex, true);
             entity.id = data.id;
             entity.tier = data.tier || 1;
             entity.xp = data.xp || 0;
             entity.angle = data.angle || 0;
-            entity.isOtherPlayer = true; // Mark as other player
+            entity.isOtherPlayer = true;
             
             return entity;
         }
+        
         async function initAuth() {
             const { data: { session } } = await supabase.auth.getSession();
             if (session) {
@@ -1465,7 +1641,6 @@ socket.on('botDamaged', (data) => {
             document.getElementById('display-username').innerText = 
                 currentUser.user_metadata?.username || currentUser.email.split('@')[0];
             
-            // Show admin button for owner
             if (isOwner()) {
                 document.getElementById('admin-panel-btn').style.display = 'block';
             }
@@ -1474,6 +1649,7 @@ socket.on('botDamaged', (data) => {
         function hideProfile() {
             document.getElementById('nav-login-btn').style.display = 'block';
             document.getElementById('profile-card').style.display = 'none';
+            document.getElementById('admin-panel-btn').style.display = 'none';
         }
 
         function openAuthModal() {
@@ -1526,12 +1702,10 @@ socket.on('botDamaged', (data) => {
                 });
                 if (error) throw error;
 
-                // Check if we are logged in immediately (Auto-confirm enabled)
                 if (data.session) {
                     showToast("Account Created & Logged In!", "success");
                     closeAuthModal();
                 } else {
-                    // Verification required
                     document.getElementById('auth-form').style.display = 'none';
                     document.getElementById('confirm-msg').style.display = 'block';
                     document.getElementById('confirm-msg').innerHTML = 
@@ -1644,7 +1818,6 @@ socket.on('botDamaged', (data) => {
                     this.target.isFeared = true;
                     this.target.fearSource = this.source;
                     
-                    // Add visual effect for fear
                     if (Math.random() < 0.2) {
                         particles.push(new Particle(
                             this.target.x + (Math.random() - 0.5) * this.target.size,
@@ -1922,7 +2095,6 @@ socket.on('botDamaged', (data) => {
                     this.dashTimer -= dt;
                     moveSpeed *= 3;
                     
-                    // SCORPION BOOST CLAW ATTACK
                     if (this.type === 'scorpion' && !this.isBot) {
                         const clawRange = this.size * 2.5;
                         Object.values(bots).forEach(b => {
@@ -1932,15 +2104,14 @@ socket.on('botDamaged', (data) => {
                                 b.hp -= clawDamage;
                                 b.onHit(clawDamage, this);
                                 damageTexts.push(new DamageText(b.x, b.y - b.size - 20, clawDamage, '#16a085'));
-                                // Broadcast bot damage to server (for ALL bots, server is authority)
-if (socket && isConnected) {
-    socket.emit('botDamaged', {
-        botId: b.botId,
-        damage: clawDamage,
-        hp: b.hp,
-        isDead: b.isDead
-    });
-}
+                                if (socket && isConnected) {
+                                    socket.emit('botDamaged', {
+                                        botId: b.botId,
+                                        damage: clawDamage,
+                                        hp: b.hp,
+                                        isDead: b.isDead
+                                    });
+                                }
                                 for (let i = 0; i < 8; i++) {
                                     particles.push(new Particle(b.x, b.y, '#16a085', 'hit'));
                                 }
@@ -2087,15 +2258,14 @@ if (socket && isConnected) {
                         strikeTargets.forEach(b => {
                             const strikeDamage = this.damage * 3;
                             b.hp -= strikeDamage;
-                            // Broadcast bot damage to server (for ALL bots, server is authority)
-if (socket && isConnected) {
-    socket.emit('botDamaged', {
-        botId: b.botId,
-        damage: strikeDamage,
-        hp: b.hp,
-        isDead: b.isDead
-    });
-}
+                            if (socket && isConnected) {
+                                socket.emit('botDamaged', {
+                                    botId: b.botId,
+                                    damage: strikeDamage,
+                                    hp: b.hp,
+                                    isDead: b.isDead
+                                });
+                            }
                             b.onHit(strikeDamage, this);
                             for (let i = 0; i < 10; i++) {
                                 particles.push(new Particle(b.x, b.y, '#27ae60', 'hit'));
@@ -2128,7 +2298,6 @@ if (socket && isConnected) {
                             }
                         });
                         
-                        // IMPROVED FEAR ANIMATION
                         for (let i = 0; i < 40; i++) {
                             const angle = (Math.PI * 2 / 40) * i;
                             particles.push(new Particle(
@@ -2162,15 +2331,14 @@ if (socket && isConnected) {
                             statusEffects.push(new StatusEffect(b, 'poison', 6));
                             const damage = this.damage * 1.5;
                             b.hp -= damage;
-                            // Broadcast bot damage to server (for ALL bots, server is authority)
-if (socket && isConnected) {
-    socket.emit('botDamaged', {
-        botId: b.botId,
-        damage: damage,
-        hp: b.hp,
-        isDead: b.isDead
-    });
-}
+                            if (socket && isConnected) {
+                                socket.emit('botDamaged', {
+                                    botId: b.botId,
+                                    damage: damage,
+                                    hp: b.hp,
+                                    isDead: b.isDead
+                                });
+                            }
                             b.onHit(damage, this);
                         });
                         for (let i = 0; i < 40; i++) {
@@ -2228,7 +2396,6 @@ if (socket && isConnected) {
                 for (let t = 10; t >= 1; t--) {
                     if (this.xp >= XP_REQUIREMENTS[t] && this.tier < t) {
                         if (this === player) {
-                            // This check prevents the menu from refreshing 60 times a second
                             if (currentEvolutionTier !== t) {
                                 currentEvolutionTier = t;
                                 showEvolutionBar(t);
@@ -2239,7 +2406,6 @@ if (socket && isConnected) {
                         break;
                     }
                 }
-                // Send XP update to server
                 if (socket && isConnected && !this.isBot) {
                     socket.emit('playerUpdate', {
                         size: this.size,
@@ -2281,7 +2447,7 @@ if (socket && isConnected) {
             }
 
             takeDamage(amount) {
-                if (this.hasShield) return false;
+                if (this.hasShield || (this === player && godMode)) return false;
                 this.hp -= amount;
                 return this.hp <= 0;
             }
@@ -3263,7 +3429,6 @@ if (socket && isConnected) {
                 
                 const displayName = this.name || (this.isBot ? 'Bot' : '');
                 
-                // Check if this is the owner
                 const nameToShow = (isSelf && currentUser && currentUser.email === OWNER_EMAIL) 
                     ? `👑 ${displayName}` 
                     : displayName;
@@ -3288,11 +3453,10 @@ if (socket && isConnected) {
                 this.aggroTimer = 0;
                 this.respawnTimer = 0;
                 this.isDead = false;
-                this.isRemote = false; // Track if this bot is from another player
+                this.isRemote = false;
             }
 
             update(dt) {
-                // RESPAWN MECHANIC
                 if (this.isDead) {
                     this.respawnTimer -= dt;
                     if (this.respawnTimer <= 0) {
@@ -3377,9 +3541,7 @@ if (socket && isConnected) {
 
                 super.update(dt);
                 
-                // Emit bot movement to server (only for local bots, not remote ones)
                 if (!this.isRemote && socket && isConnected) {
-                    // Throttle updates - only send every few frames
                     if (!this.lastEmitTime || Date.now() - this.lastEmitTime > 100) {
                         this.lastEmitTime = Date.now();
                         socket.emit('botMoved', {
@@ -3394,9 +3556,8 @@ if (socket && isConnected) {
 
             die() {
                 this.isDead = true;
-                this.respawnTimer = 5; // Respawn after 5 seconds
+                this.respawnTimer = 5;
                 
-                // Notify server of bot death (only for local bots)
                 if (!this.isRemote && socket && isConnected) {
                     socket.emit('botDied', { botId: this.botId });
                 }
@@ -3414,7 +3575,6 @@ if (socket && isConnected) {
                 this.xp = 0;
                 this.clearPowerups();
                 
-                // Notify server of bot respawn (only for local bots)
                 if (!this.isRemote && socket && isConnected) {
                     socket.emit('botRespawned', {
                         botId: this.botId,
@@ -3459,20 +3619,19 @@ if (socket && isConnected) {
         }
 
         function sendChatMessage(message) {
-    if (!player) return;
-    const fullMessage = player.name + ' ' + message;
-    chatMessages.push({ text: fullMessage, time: Date.now() });
-    if (chatMessages.length > 5) chatMessages.shift();
-    updateChatDisplay();
-    
-    // Broadcast to other players - send just the message text, not full message
-    if (socket && isConnected) {
-        socket.emit('chatMessage', {
-            text: message, // Send just the message, server adds name
-            playerName: player.name
-        });
-    }
-}
+            if (!player) return;
+            const fullMessage = player.name + ' ' + message;
+            chatMessages.push({ text: fullMessage, time: Date.now() });
+            if (chatMessages.length > 5) chatMessages.shift();
+            updateChatDisplay();
+            
+            if (socket && isConnected) {
+                socket.emit('chatMessage', {
+                    text: message,
+                    playerName: player.name
+                });
+            }
+        }
 
         function updateChatDisplay() {
             const chatContainer = document.getElementById('chat-messages');
@@ -3521,7 +3680,6 @@ if (socket && isConnected) {
             }
             playerName = name;
             
-            // Connect to server now, before game starts
             connectToServer();
             
             document.getElementById('main-menu').style.display = 'none';
@@ -3551,7 +3709,6 @@ if (socket && isConnected) {
             document.getElementById('leaderboard').style.display = 'block';
             document.getElementById('boost-container').style.display = 'flex';
             document.getElementById('chat-container').style.display = 'block';
-            document.getElementById('top-right-ui').style.display = 'none';
             
             canvas = document.getElementById('gameCanvas');
             ctx = canvas.getContext('2d');
@@ -3566,12 +3723,10 @@ if (socket && isConnected) {
             
             for (let i=0; i<2000; i++) foods.push(new Food());
             
-            // Spawn bots and notify server
             for (let i=0; i<20; i++) {
                 const bot = new Bot(Math.random()*CANVAS_WIDTH, Math.random()*CANVAS_HEIGHT);
                 bots[bot.botId] = bot;
                 
-                // Notify server about this bot spawn
                 if (socket && isConnected) {
                     socket.emit('botSpawned', {
                         botId: bot.botId,
@@ -3591,7 +3746,7 @@ if (socket && isConnected) {
                     y: player.y,
                     angle: player.angle,
                     name: player.name,
-                    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
+                    userId: currentUser ? currentUser.id : null,
                     color: player.color,
                     size: player.size,
                     tier: player.tier,
@@ -3605,17 +3760,17 @@ if (socket && isConnected) {
             lastUpdateTime = Date.now();
             requestAnimationFrame(gameLoop);
         }
-// FORUM SYSTEM
+        
+        // FORUM SYSTEM
         let selectedCategory = null;
         let lastPostTime = 0;
-        const POST_COOLDOWN = 10 * 1000; // 10 seconds in milliseconds
+        const POST_COOLDOWN = 10 * 1000;
 
         async function openForum() {
             document.getElementById('forum-modal').style.display = 'flex';
             await loadForumPosts();
             updateCooldownDisplay();
             
-            // Show login message if not logged in
             if (!currentUser) {
                 showToast('Login to create posts!', 'error');
             }
@@ -3628,7 +3783,6 @@ if (socket && isConnected) {
         function selectCategory(category) {
             selectedCategory = category;
             
-            // Update UI
             document.querySelectorAll('.category-btn').forEach(btn => {
                 btn.classList.remove('selected');
             });
@@ -3636,18 +3790,16 @@ if (socket && isConnected) {
         }
 
         async function createForumPost() {
-    // Check if logged in first
-    if (!currentUser) {
-        showToast('You must be logged in to post!', 'error');
-        closeForum();
-        openAuthModal();
-        return;
-    }
-            
+            if (!currentUser) {
+                showToast('You must be logged in to post!', 'error');
+                closeForum();
+                openAuthModal();
+                return;
+            }
+                
             const title = document.getElementById('forum-title').value.trim();
             const description = document.getElementById('forum-description').value.trim();
             
-            // Validation
             if (!selectedCategory) {
                 showToast('Please select a category!', 'error');
                 return;
@@ -3663,7 +3815,6 @@ if (socket && isConnected) {
                 return;
             }
             
-            // Check cooldown
             const now = Date.now();
             const timeSinceLastPost = now - lastPostTime;
             
@@ -3675,71 +3826,55 @@ if (socket && isConnected) {
                 return;
             }
             
-            // Get username from logged in user
             const author = currentUser.user_metadata?.username || currentUser.email.split('@')[0];
             
-            // Create post object
-            const post = {
-                id: 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-                category: selectedCategory,
-                title: title,
-                description: description,
-                author: author,
-                timestamp: now
-            };
-            
-            // Save to storage
-// Save to Supabase
-try {
-    console.log('Attempting to create forum post:', post);
-    
-    const { data, error } = await supabase
-        .from('forum_posts')
-        .insert([{
-            category: post.category,
-            title: post.title,
-            description: post.description,
-            author: post.author,
-            created_at: new Date().toISOString()
-        }]);
-    
-    if (error) throw error;
-    
-    // Success!
-    showToast('Post created successfully!', 'success');
-    lastPostTime = now;
-    
-    // Clear form
-    document.getElementById('forum-title').value = '';
-    document.getElementById('forum-description').value = '';
-    selectedCategory = null;
-    document.querySelectorAll('.category-btn').forEach(btn => {
-        btn.classList.remove('selected');
-    });
-    
-    // Reload posts
-    await loadForumPosts();
-    updateCooldownDisplay();
-} catch (error) {
-    console.error('Error creating post:', error);
-    showToast(`Error: ${error.message || 'Unknown error'}`, 'error');
-}
+            try {
+                const { data, error } = await supabase
+                    .from('forum_posts')
+                    .insert([{
+                        category: selectedCategory,
+                        title: title,
+                        description: description,
+                        author: author,
+                        created_at: new Date().toISOString()
+                    }]);
+                
+                if (error) throw error;
+                
+                showToast('Post created successfully!', 'success');
+                lastPostTime = now;
+                
+                document.getElementById('forum-title').value = '';
+                document.getElementById('forum-description').value = '';
+                selectedCategory = null;
+                document.querySelectorAll('.category-btn').forEach(btn => {
+                    btn.classList.remove('selected');
+                });
+                
+                await loadForumPosts();
+                updateCooldownDisplay();
+            } catch (error) {
+                console.error('Error creating post:', error);
+                showToast(`Error: ${error.message || 'Unknown error'}`, 'error');
+            }
         }
 
         async function loadForumPosts() {
-    try {
-        const { data: posts, error } = await supabase
-            .from('forum_posts')
-            .select('*')
-            .order('created_at', { ascending: false });
+            try {
+                const { data: posts, error } = await supabase
+                    .from('forum_posts')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+                
+                if (error) throw error;
+                
+                displayForumPosts(posts || []);
+            } catch (error) {
+                console.error('Error loading posts:', error);
+            }
+        }
         
-        if (error) throw error;
-        
-        displayForumPosts(posts || []);
-    } catch (error) {
-        console.error('Error loading posts:', error);
-    }
-    function displayForumPosts(posts) {
+        function displayForumPosts(posts) {
             const container = document.getElementById('forum-posts-list');
             if (!container) return;
             
@@ -3767,18 +3902,22 @@ try {
                 postCard.onmouseout = () => postCard.style.transform = 'translateY(0)';
                 
                 const categoryColors = {
-                    'General': '#3498db',
-                    'Strategy': '#e74c3c',
-                    'Feedback': '#2ecc71',
-                    'Bug Report': '#f39c12'
+                    'suggestion': '#3498db',
+                    'game': '#2ecc71',
+                    'bug': '#e74c3c',
+                    'humor': '#f39c12'
                 };
                 
                 const timeAgo = getTimeAgoFromISO(post.created_at);
                 
-                // Check if author is owner (you'll need to set owner email in the post creation)
-                const authorDisplay = post.author === (OWNER_EMAIL.split('@')[0]) || post.author === 'Owner' 
+                const isOwnerPost = post.author === OWNER_EMAIL.split('@')[0] || post.author.toLowerCase().includes('owner');
+                const authorDisplay = isOwnerPost
                     ? `${post.author} <span style="background: linear-gradient(45deg, #f39c12, #e74c3c); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem; margin-left: 5px;">👑 OWNER</span>`
                     : post.author;
+                
+                const deleteBtn = isOwner() 
+                    ? `<button class="delete-post-btn" data-post-id="${post.id}" style="background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 0.8rem;">Delete</button>` 
+                    : '';
                 
                 postCard.innerHTML = `
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
@@ -3787,7 +3926,7 @@ try {
                         </span>
                         <div style="display: flex; gap: 10px; align-items: center;">
                             <span style="color: #7f8c8d; font-size: 0.9rem;">${timeAgo}</span>
-                            ${isOwner() ? `<button onclick="deletePost('${post.id}', event)" style="background: #e74c3c; color: white; border: none; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 0.8rem;">Delete</button>` : ''}
+                            ${deleteBtn}
                         </div>
                     </div>
                     <h3 style="margin: 10px 0; color: #2c3e50; font-size: 1.3rem;">${post.title}</h3>
@@ -3804,7 +3943,20 @@ try {
                     </div>
                 `;
                 
-                postCard.onclick = () => viewPost(post);
+                // Add delete button event listener
+                const deleteButton = postCard.querySelector('.delete-post-btn');
+                if (deleteButton) {
+                    deleteButton.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        deletePost(post.id);
+                    });
+                }
+                
+                postCard.onclick = (e) => {
+                    if (!e.target.classList.contains('delete-post-btn')) {
+                        viewPost(post);
+                    }
+                };
                 container.appendChild(postCard);
             });
         }
@@ -3859,11 +4011,16 @@ try {
                 .order('created_at', { ascending: true });
             
             const categoryColors = {
-                'General': '#3498db',
-                'Strategy': '#e74c3c',
-                'Feedback': '#2ecc71',
-                'Bug Report': '#f39c12'
+                'suggestion': '#3498db',
+                'game': '#2ecc71',
+                'bug': '#e74c3c',
+                'humor': '#f39c12'
             };
+            
+            const isOwnerPost = post.author === OWNER_EMAIL.split('@')[0] || post.author.toLowerCase().includes('owner');
+            const authorWithBadge = isOwnerPost
+                ? `${post.author} <span style="background: linear-gradient(45deg, #f39c12, #e74c3c); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;">👑 OWNER</span>`
+                : post.author;
             
             modalContent.innerHTML = `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
@@ -3875,7 +4032,7 @@ try {
                 
                 <h2 style="color: #2c3e50; margin-bottom: 10px;">${post.title}</h2>
                 <p style="color: #7f8c8d; margin-bottom: 20px;">
-                    By <strong>${post.author === (OWNER_EMAIL.split('@')[0]) || post.author === 'Owner' ? `${post.author} <span style="background: linear-gradient(45deg, #f39c12, #e74c3c); color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.75rem;">👑 OWNER</span>` : post.author}</strong> • ${getTimeAgoFromISO(post.created_at)}
+                    By <strong>${authorWithBadge}</strong> • ${getTimeAgoFromISO(post.created_at)}
                 </p>
                 
                 <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
@@ -3892,7 +4049,8 @@ try {
                 <div id="comments-list" style="margin-bottom: 20px;">
                     ${comments && comments.length > 0 ? 
                         comments.map(c => {
-                            const authorWithBadge = c.author === (OWNER_EMAIL.split('@')[0]) || c.author === 'Owner'
+                            const isOwnerComment = c.author === OWNER_EMAIL.split('@')[0] || c.author.toLowerCase().includes('owner');
+                            const authorWithBadge = isOwnerComment
                                 ? `${c.author} <span style="background: linear-gradient(45deg, #f39c12, #e74c3c); color: white; padding: 2px 6px; border-radius: 8px; font-size: 0.7rem;">👑 OWNER</span>`
                                 : c.author;
                             
@@ -3902,7 +4060,7 @@ try {
                                     <strong style="color: #3498db;">${authorWithBadge}</strong>
                                     <div style="display: flex; gap: 8px; align-items: center;">
                                         <span style="color: #7f8c8d; font-size: 0.9rem;">${getTimeAgoFromISO(c.created_at)}</span>
-                                        ${isOwner() ? `<button onclick="deleteComment('${c.id}', '${post.id}')" style="background: #e74c3c; color: white; border: none; padding: 4px 8px; border-radius: 5px; cursor: pointer; font-size: 0.75rem;">Delete</button>` : ''}
+                                        ${isOwner() ? `<button class="delete-comment-btn" data-comment-id="${c.id}" data-post-id="${post.id}" style="background: #e74c3c; color: white; border: none; padding: 4px 8px; border-radius: 5px; cursor: pointer; font-size: 0.75rem;">Delete</button>` : ''}
                                     </div>
                                 </div>
                                 <p style="color: #2c3e50; line-height: 1.5;">${c.comment}</p>
@@ -3946,6 +4104,17 @@ try {
             modal.appendChild(modalContent);
             document.body.appendChild(modal);
             
+            // Add delete comment button event listeners
+            const deleteCommentBtns = modalContent.querySelectorAll('.delete-comment-btn');
+            deleteCommentBtns.forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const commentId = btn.getAttribute('data-comment-id');
+                    const postId = btn.getAttribute('data-post-id');
+                    deleteComment(commentId, postId);
+                });
+            });
+            
             document.getElementById('close-post-view').onclick = () => {
                 document.body.removeChild(modal);
             };
@@ -3987,7 +4156,60 @@ try {
                 };
             }
         }
-}
+
+        async function deletePost(postId, event) {
+            if (event) event.stopPropagation();
+            if (!isOwner()) {
+                showToast('Access Denied', 'error');
+                return;
+            }
+            
+            customConfirm('Delete Post', 'Are you sure you want to delete this post? All comments will also be deleted.', async (confirmed) => {
+                if (!confirmed) return;
+                
+                try {
+                    await supabase.from('forum_comments').delete().eq('post_id', postId);
+                    const { error } = await supabase.from('forum_posts').delete().eq('id', postId);
+                    if (error) throw error;
+                    showToast('Post deleted', 'success');
+                    loadForumPosts();
+                } catch (error) {
+                    console.error('Error:', error);
+                    showToast('Error deleting post', 'error');
+                }
+            });
+        }
+
+        async function deleteComment(commentId, postId) {
+            if (!isOwner()) {
+                showToast('Access Denied', 'error');
+                return;
+            }
+            
+            customConfirm('Delete Comment', 'Are you sure you want to delete this comment?', async (confirmed) => {
+                if (!confirmed) return;
+                
+                try {
+                    const { error } = await supabase.from('forum_comments').delete().eq('id', commentId);
+                    if (error) throw error;
+                    showToast('Comment deleted', 'success');
+                    
+                    const { data: post } = await supabase
+                        .from('forum_posts')
+                        .select('*')
+                        .eq('id', postId)
+                        .single();
+                    
+                    if (post) {
+                        document.getElementById('post-view-modal')?.remove();
+                        viewPost(post);
+                    }
+                } catch (error) {
+                    console.error('Error:', error);
+                    showToast('Error deleting comment', 'error');
+                }
+            });
+        }
 
         function updateCooldownDisplay() {
             const now = Date.now();
@@ -4004,7 +4226,6 @@ try {
                 cooldownDiv.textContent = `Cooldown: ${minutes}m ${seconds}s remaining`;
                 createBtn.disabled = true;
                 
-                // Update every second
                 setTimeout(updateCooldownDisplay, 1000);
             } else {
                 cooldownDiv.style.display = 'none';
@@ -4012,85 +4233,6 @@ try {
             }
         }
 
-        function getTimeAgo(timestamp) {
-            const now = Date.now();
-            const diff = now - timestamp;
-            
-            const seconds = Math.floor(diff / 1000);
-            const minutes = Math.floor(seconds / 60);
-            const hours = Math.floor(minutes / 60);
-            const days = Math.floor(hours / 24);
-            
-            if (days > 0) return days + ' day' + (days > 1 ? 's' : '') + ' ago';
-            if (hours > 0) return hours + ' hour' + (hours > 1 ? 's' : '') + ' ago';
-            if (minutes > 0) return minutes + ' minute' + (minutes > 1 ? 's' : '') + ' ago';
-            return 'Just now';
-        }
-
-        async function deletePost(postId, event) {
-            if (event) event.stopPropagation();
-            
-            if (!isOwner()) {
-                showToast('Access Denied', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to delete this post?')) return;
-            
-            try {
-                // Delete all comments first
-                await supabase.from('forum_comments').delete().eq('post_id', postId);
-                
-                // Then delete the post
-                const { error } = await supabase.from('forum_posts').delete().eq('id', postId);
-                
-                if (error) throw error;
-                
-                showToast('Post deleted', 'success');
-                loadForumPosts();
-            } catch (error) {
-                console.error('Error deleting post:', error);
-                showToast('Error deleting post', 'error');
-            }
-        }
-
-        async function deleteComment(commentId, postId) {
-            if (!isOwner()) {
-                showToast('Access Denied', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to delete this comment?')) return;
-            
-            try {
-                const { error } = await supabase.from('forum_comments').delete().eq('id', commentId);
-                
-                if (error) throw error;
-                
-                showToast('Comment deleted', 'success');
-                
-                // Reload the post to refresh comments
-                const { data: post } = await supabase
-                    .from('forum_posts')
-                    .select('*')
-                    .eq('id', postId)
-                    .single();
-                
-                if (post) {
-                    document.getElementById('post-view-modal')?.remove();
-                    viewPost(post);
-                }
-            } catch (error) {
-                console.error('Error deleting comment:', error);
-                showToast('Error deleting comment', 'error');
-            }
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
         function gameLoop() {
             if (!gameRunning) return;
             const now = Date.now();
@@ -4131,18 +4273,17 @@ try {
                 const f = foods[i];
                 if (Math.hypot(f.x - player.x, f.y - player.y) < player.size + f.size) {
                     player.xp += f.xp;
-                    // Send XP update every 10 food
-if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
-    socket.emit('playerUpdate', {
-        size: player.size,
-        tier: player.tier,
-        hp: player.hp,
-        xp: player.xp,
-        color: player.color,
-        animalType: player.animalData.name,
-        animalIndex: player.animalIndex
-    });
-}
+                    if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
+                        socket.emit('playerUpdate', {
+                            size: player.size,
+                            tier: player.tier,
+                            hp: player.hp,
+                            xp: player.xp,
+                            color: player.color,
+                            animalType: player.animalData.name,
+                            animalIndex: player.animalIndex
+                        });
+                    }
                     player.heal(f.healAmount);
                     
                     if (boostCharges < 3) {
@@ -4177,113 +4318,112 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                     xpOrbs.splice(i, 1);
                 }
             }
-// PLAYER VS PLAYER COMBAT (based on working bot combat mechanics)
-Object.values(otherPlayers).forEach(other => {
-    if (!other || other.isDead) return;
-    if (player.isStunned || other.isStunned) return;
-    
-    const combatDist = Math.hypot(player.x - other.x, player.y - other.y);
-    const touchDist = player.size + other.size;
-    
-    if (combatDist < touchDist) {
-        const ang = Math.atan2(player.y - other.y, player.x - other.x);
-        const overlap = touchDist - combatDist;
-        const pushForce = overlap * 0.5;
-        
-        player.x += Math.cos(ang) * pushForce * 0.5;
-        player.y += Math.sin(ang) * pushForce * 0.5;
-        
-        if (!player.pvpCooldowns) player.pvpCooldowns = {};
-        
-        if (!player.pvpCooldowns[other.id] || player.pvpCooldowns[other.id] <= 0) {
-            player.pvpCooldowns[other.id] = 0.5;
-            
-            let damage = player.damage;
-            if (player.hasRage) damage *= 2;
-            
-            if (player.size >= other.size && !other.hasShield) {
-                damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
-                for (let i = 0; i < 5; i++) {
-                    particles.push(new Particle(other.x, other.y, other.color, 'hit'));
-                }
-                
-                if (socket && isConnected) {
-                    socket.emit('playerHit', {
-                        targetId: other.id,
-                        damage: damage
-                    });
-                }
-                
-                player.inCombat = true;
-                player.lastHitTime = Date.now();
-            }
-        }
-        
-        if (player.pvpCooldowns[other.id] > 0) {
-            player.pvpCooldowns[other.id] -= 0.016;
-        }
-    }
-});
 
-// PLAYER VS BOT COMBAT (from old working code)
-Object.values(bots).forEach(b => {
-    if (player.isStunned || b.isDead) return;
-    
-    const combatDist = Math.hypot(player.x - b.x, player.y - b.y);
-    const touchDist = player.size + b.size;
-    
-    if (combatDist < touchDist) {
-        const ang = Math.atan2(player.y - b.y, player.x - b.x);
-        const overlap = touchDist - combatDist;
-        const pushForce = overlap * 0.5;
-        
-        player.x += Math.cos(ang) * pushForce * 0.5;
-        player.y += Math.sin(ang) * pushForce * 0.5;
-        b.x -= Math.cos(ang) * pushForce * 0.5;
-        b.y -= Math.sin(ang) * pushForce * 0.5;
-        
-        if (player.combatCooldown <= 0) {
-            player.combatCooldown = 0.5;
-            
-            let playerDmg = b.damage;
-            let botDmg = player.damage;
-            
-            if (player.hasRage) botDmg *= 2;
-            if (b.hasRage) playerDmg *= 2;
-            
-            if (!b.hasShield) {
-                b.onHit(botDmg, player);
-                b.hp -= botDmg;
+            Object.values(otherPlayers).forEach(other => {
+                if (!other || other.isDead) return;
+                if (player.isStunned || other.isStunned) return;
                 
-                if (socket && isConnected) {
-                    socket.emit('botDamaged', {
-                        botId: b.botId,
-                        damage: botDmg,
-                        hp: b.hp,
-                        isDead: b.hp <= 0
-                    });
-                }
-            }
-            
-            if (!b.isStunned) {
-                const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
-                let angleDiff = angleToPlayer - b.angle;
-                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                const combatDist = Math.hypot(player.x - other.x, player.y - other.y);
+                const touchDist = player.size + other.size;
                 
-                if (Math.abs(angleDiff) < Math.PI / 2 && !player.hasShield) {
-                    player.onHit(playerDmg, b);
-                    player.hp -= playerDmg;
+                if (combatDist < touchDist) {
+                    const ang = Math.atan2(player.y - other.y, player.x - other.x);
+                    const overlap = touchDist - combatDist;
+                    const pushForce = overlap * 0.5;
+                    
+                    player.x += Math.cos(ang) * pushForce * 0.5;
+                    player.y += Math.sin(ang) * pushForce * 0.5;
+                    
+                    if (!player.pvpCooldowns) player.pvpCooldowns = {};
+                    
+                    if (!player.pvpCooldowns[other.id] || player.pvpCooldowns[other.id] <= 0) {
+                        player.pvpCooldowns[other.id] = 0.5;
+                        
+                        let damage = player.damage;
+                        if (player.hasRage) damage *= 2;
+                        
+                        if (player.size >= other.size && !other.hasShield) {
+                            damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
+                            for (let i = 0; i < 5; i++) {
+                                particles.push(new Particle(other.x, other.y, other.color, 'hit'));
+                            }
+                            
+                            if (socket && isConnected) {
+                                socket.emit('playerHit', {
+                                    targetId: other.id,
+                                    damage: damage
+                                });
+                            }
+                            
+                            player.inCombat = true;
+                            player.lastHitTime = Date.now();
+                        }
+                    }
+                    
+                    if (player.pvpCooldowns[other.id] > 0) {
+                        player.pvpCooldowns[other.id] -= 0.016;
+                    }
                 }
-            }
-            
-            if (player.hp <= 0) {
-                playerDied();
-                return;
-            }
-        }
-    }
-});
+            });
+
+            Object.values(bots).forEach(b => {
+                if (player.isStunned || b.isDead) return;
+                
+                const combatDist = Math.hypot(player.x - b.x, player.y - b.y);
+                const touchDist = player.size + b.size;
+                
+                if (combatDist < touchDist) {
+                    const ang = Math.atan2(player.y - b.y, player.x - b.x);
+                    const overlap = touchDist - combatDist;
+                    const pushForce = overlap * 0.5;
+                    
+                    player.x += Math.cos(ang) * pushForce * 0.5;
+                    player.y += Math.sin(ang) * pushForce * 0.5;
+                    b.x -= Math.cos(ang) * pushForce * 0.5;
+                    b.y -= Math.sin(ang) * pushForce * 0.5;
+                    
+                    if (player.combatCooldown <= 0) {
+                        player.combatCooldown = 0.5;
+                        
+                        let playerDmg = b.damage;
+                        let botDmg = player.damage;
+                        
+                        if (player.hasRage) botDmg *= 2;
+                        if (b.hasRage) playerDmg *= 2;
+                        
+                        if (!b.hasShield) {
+                            b.onHit(botDmg, player);
+                            b.hp -= botDmg;
+                            
+                            if (socket && isConnected) {
+                                socket.emit('botDamaged', {
+                                    botId: b.botId,
+                                    damage: botDmg,
+                                    hp: b.hp,
+                                    isDead: b.hp <= 0
+                                });
+                            }
+                        }
+                        
+                        if (!b.isStunned) {
+                            const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
+                            let angleDiff = angleToPlayer - b.angle;
+                            while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                            while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                            
+                            if (Math.abs(angleDiff) < Math.PI / 2 && !player.hasShield && !godMode) {
+                                player.onHit(playerDmg, b);
+                                player.hp -= playerDmg;
+                            }
+                        }
+                        
+                        if (player.hp <= 0) {
+                            playerDied();
+                            return;
+                        }
+                    }
+                }
+            });
 
             Object.values(bots).forEach(b => {
                 if (b.hp <= 0 && !b.isDead) {
@@ -4345,7 +4485,6 @@ Object.values(bots).forEach(b => {
             particles.forEach(p => p.draw(camera.x, camera.y));
             Object.values(bots).forEach(b => { if (!b.isDead) b.draw(camera.x, camera.y); });
             if (player) player.draw(camera.x, camera.y, true);
-            // Draw other players using their Entity.draw() method
             Object.values(otherPlayers).forEach(p => {
                 if (p && !p.isDead) {
                     p.draw(camera.x, camera.y, false);
@@ -4384,20 +4523,16 @@ Object.values(bots).forEach(b => {
             
             const list = document.getElementById('leaderboard-list');
             if (player) {
-                // Create leaderboard with all players
                 const allPlayers = [
                     { name: player.name, xp: player.xp, tier: player.tier, isSelf: true }
                 ];
                 
-                // Add other players
                 Object.values(otherPlayers).forEach(p => {
                     allPlayers.push({ name: p.name, xp: p.xp || 0, tier: p.tier || 1, isSelf: false });
                 });
                 
-                // Sort by XP
                 allPlayers.sort((a, b) => b.xp - a.xp);
                 
-                // Build HTML
                 let html = '';
                 allPlayers.slice(0, 5).forEach((p, i) => {
                     const className = p.isSelf ? 'leaderboard-entry self' : 'leaderboard-entry';
@@ -4433,8 +4568,6 @@ Object.values(bots).forEach(b => {
             document.getElementById('chat-container').style.display = 'none';
             document.getElementById('evolution-bar').style.display = 'none';
             document.getElementById('main-menu').style.display = 'flex';
-            document.getElementById('top-left-ui').style.display = 'flex';
-            document.getElementById('top-right-ui').style.display = 'block';
             
             player = null;
             bots = {};
@@ -4501,7 +4634,7 @@ Object.values(bots).forEach(b => {
                 }
             }
             
-            if (chatOpen) return; // Don't allow game controls while chatting
+            if (chatOpen) return;
             
             if (e.code === 'Space' && player && gameRunning) {
                 e.preventDefault();
