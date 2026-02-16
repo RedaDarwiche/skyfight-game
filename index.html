@@ -1065,8 +1065,20 @@
     <script>
         const SUPABASE_URL = 'https://jppfsqkshcmwskcdsqis.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwcGZzcWtzaGNtd3NrY2RzcWlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjczMzgsImV4cCI6MjA4NjUwMzMzOH0.ACkiOnXuKGnzKTqi2HSLggktIzrRWOFLje-dp20dpqU';
-        // Create the client instance and overwrite the global variable
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
+        // TIMING FIX: Initialize supabase safely after window loads
+        let supabase = null;
+        
+        // Initialize Supabase when window loads
+        function initSupabase() {
+            if (window.supabase) {
+                supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+                initAuth(); // Move initAuth call here
+            } else {
+                console.error("Supabase failed to load");
+            }
+        }
+        
         let currentUser = null;
         let socket = null;
         let isConnected = false;
@@ -1312,15 +1324,16 @@ function maxBoosts() {
 
 function killAllBots() {
     if (player && gameRunning) {
-        let count = 0;
-        Object.values(bots).forEach(b => {
-            if (!b.isDead) {
-                b.hp = 0;
-                b.die();
-                count++;
-            }
-        });
-        showToast(`Killed ${count} bots!`, 'success');
+        // SECURITY FIX: Send admin command to server for verification
+        if (socket && isConnected) {
+            socket.emit('adminCommand', { 
+                command: 'killBots',
+                email: currentUser ? currentUser.email : null
+            });
+            showToast('Requesting to kill all bots...', 'success');
+        } else {
+            showToast('Not connected to server!', 'error');
+        }
     } else {
         showToast('Start the game first!', 'error');
     }
@@ -1349,17 +1362,19 @@ function teleportCenter() {
                 // If player already exists (game already started), join immediately
                 if (player && gameRunning) {
                     socket.emit('playerJoin', {
-    x: player.x,
-    y: player.y,
-    angle: player.angle,
-    name: playerName,
-    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
+                        x: player.x,
+                        y: player.y,
+                        angle: player.angle,
+                        name: playerName,
+                        userId: currentUser ? currentUser.id : null,
+                        email: currentUser ? currentUser.email : null, // For admin verification
                         color: player.color,
                         size: player.size,
                         tier: player.tier,
                         hp: player.hp,
                         xp: player.xp,
-                        animalType: player.animalData.name
+                        animalType: player.animalData.name,
+                        animalIndex: player.animalIndex // FIXED: Include animalIndex on reconnect
                     });
                     
                     // Re-register all local bots with server after reconnect
@@ -1409,15 +1424,16 @@ function teleportCenter() {
             socket.on('playerUpdated', (data) => {
     if (otherPlayers[data.id]) {
         const oldTier = otherPlayers[data.id].tier;
+        const oldHp = otherPlayers[data.id].lastKnownHp || data.hp;
         
-        // If tier changed, they evolved
+        // FIXED: If tier changed, they evolved - use animalIndex directly
         if (data.tier && data.tier !== oldTier && data.animalIndex !== undefined) {
             otherPlayers[data.id].evolve(data.tier, data.animalIndex);
         }
         
-        // UPDATE HP AND XP
+        // FIXED: UPDATE HP AND MAXHP properly
         otherPlayers[data.id].hp = data.hp;
-        otherPlayers[data.id].maxHp = data.hp; // Keep maxHp in sync
+        otherPlayers[data.id].maxHp = data.maxHp || data.hp; // FIXED: Proper maxHp sync
         otherPlayers[data.id].xp = data.xp;
         
         // UPDATE POWERUP STATES
@@ -1426,11 +1442,25 @@ function teleportCenter() {
         otherPlayers[data.id].hasSpeedBoost = data.hasSpeedBoost || false;
         otherPlayers[data.id].isInvisible = data.isInvisible || false;
         
-        // Show hit flash if HP decreased
-        if (data.hp < (otherPlayers[data.id].lastKnownHp || data.hp)) {
+        // UI FIX: Show hit flash and damage numbers if HP decreased
+        if (data.hp < oldHp) {
             otherPlayers[data.id].hitFlash = 1;
+            const damage = oldHp - data.hp;
+            if (damage > 0) {
+                damageTexts.push(new DamageText(
+                    otherPlayers[data.id].x, 
+                    otherPlayers[data.id].y - 40, 
+                    damage, 
+                    '#ff6b6b'
+                ));
+            }
         }
         otherPlayers[data.id].lastKnownHp = data.hp;
+        
+        // FIXED: Check if player died based on HP
+        if (data.hp <= 0 && !otherPlayers[data.id].isDead) {
+            otherPlayers[data.id].isDead = true;
+        }
     }
 });
             
@@ -1471,22 +1501,23 @@ socket.on('gotHit', (data) => {
             particles.push(new Particle(player.x, player.y, player.color, 'hit'));
         }
         
-       // BROADCAST HP UPDATE TO ALL PLAYERS
-if (socket && isConnected) {
-    socket.emit('playerUpdate', {
-        size: player.size,
-        tier: player.tier,
-        hp: player.hp,
-        xp: player.xp,
-        color: player.color,
-        animalType: player.animalData.name,
-        animalIndex: player.animalIndex,
-        hasShield: player.hasShield,
-        hasRage: player.hasRage,
-        hasSpeedBoost: player.hasSpeedBoost,
-        isInvisible: player.isInvisible
-    });
-}
+        // FIXED: BROADCAST HP UPDATE WITH MAXHP TO ALL PLAYERS
+        if (socket && isConnected) {
+            socket.emit('playerUpdate', {
+                size: player.size,
+                tier: player.tier,
+                hp: player.hp,
+                maxHp: player.maxHp, // FIXED: Include maxHp
+                xp: player.xp,
+                color: player.color,
+                animalType: player.animalData.name,
+                animalIndex: player.animalIndex,
+                hasShield: player.hasShield,
+                hasRage: player.hasRage,
+                hasSpeedBoost: player.hasSpeedBoost,
+                isInvisible: player.isInvisible
+            });
+        }
         
         if (player.hp <= 0) {
             player.hp = 0;
@@ -1496,8 +1527,8 @@ if (socket && isConnected) {
     }
 });
 socket.on('chatMessage', (data) => {
-    // Receive chat from other players - combine name + message
-    const fullMessage = data.playerName + ' ' + data.text;
+    // Receive chat from other players - combine name + message with colon
+    const fullMessage = data.playerName + ': ' + data.text; // FIXED: Added ': ' for proper formatting
     chatMessages.push({ text: fullMessage, time: Date.now() });
     if (chatMessages.length > 5) chatMessages.shift();
     updateChatDisplay();
@@ -1553,8 +1584,15 @@ socket.on('remoteBotMoved', (data) => {
 
 socket.on('remoteBotDamaged', (data) => {
     if (bots[data.botId]) {
+        // UI FIX: Calculate and show damage number
+        const damage = bots[data.botId].hp - data.hp;
         bots[data.botId].hp = data.hp;
         bots[data.botId].hitFlash = 1;
+        
+        // Show damage text for remote combat
+        if (damage > 0) {
+            damageTexts.push(new DamageText(bots[data.botId].x, bots[data.botId].y - 40, damage, '#ffffff'));
+        }
     }
 });
 
@@ -1620,17 +1658,62 @@ socket.on('botDamaged', (data) => {
         delete otherPlayers[playerId];
     }
 });
+
+// GAMEPLAY FIX: Receive status effects from other players
+socket.on('statusApplied', (data) => {
+    if (!player) return;
+    
+    // Apply the status effect to the local player
+    const effect = new StatusEffect(player, data.type, data.duration);
+    if (data.type === 'fear' && data.sourceX && data.sourceY) {
+        // Create a temporary source object for fear
+        effect.source = { x: data.sourceX, y: data.sourceY };
+    }
+    statusEffects.push(effect);
+    
+    // Show visual feedback
+    const effectNames = {
+        'stun': 'Stunned!',
+        'poison': 'Poisoned!',
+        'fear': 'Feared!'
+    };
+    if (effectNames[data.type]) {
+        showToast(effectNames[data.type], 'error');
+    }
+});
+
+// ADMIN FIX: Handle admin commands from server
+socket.on('allBotsKilled', () => {
+    // Kill all bots locally when server broadcasts the command
+    Object.values(bots).forEach(b => {
+        if (!b.isDead) {
+            b.hp = 0;
+            b.die();
+        }
+    });
+    showToast('All bots killed by admin!', 'success');
+});
+
+socket.on('allBotsCleared', () => {
+    // Clear all bots locally when server broadcasts the command
+    bots = {};
+    showToast('All bots cleared by admin!', 'success');
+});
         }
         
         function createOtherPlayer(data) {
-            // Find the animal index from the name
-            let animalIndex = 0;
-            const tierAnimals = TIER_ANIMALS[data.tier || 1];
-            if (tierAnimals) {
-                for (let i = 0; i < tierAnimals.length; i++) {
-                    if (tierAnimals[i].name === data.animalType) {
-                        animalIndex = i;
-                        break;
+            // FIXED: Use animalIndex directly from server data
+            let animalIndex = data.animalIndex !== undefined ? data.animalIndex : 0;
+            
+            // Fallback: If animalIndex is missing, try to find it from the name
+            if (animalIndex === 0 && data.animalType) {
+                const tierAnimals = TIER_ANIMALS[data.tier || 1];
+                if (tierAnimals) {
+                    for (let i = 0; i < tierAnimals.length; i++) {
+                        if (tierAnimals[i].name === data.animalType) {
+                            animalIndex = i;
+                            break;
+                        }
                     }
                 }
             }
@@ -1640,6 +1723,8 @@ socket.on('botDamaged', (data) => {
             entity.id = data.id;
             entity.tier = data.tier || 1;
             entity.xp = data.xp || 0;
+            entity.hp = data.hp || 100;
+            entity.maxHp = data.maxHp || data.hp || 100; // FIXED: Set proper maxHp
             entity.angle = data.angle || 0;
             entity.isOtherPlayer = true; // Mark as other player
             
@@ -1769,7 +1854,13 @@ if (isOwner()) {
         }
 
         document.getElementById('nav-login-btn').addEventListener('click', openAuthModal);
-initAuth();
+
+// TIMING FIX: Initialize Supabase after DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSupabase);
+} else {
+    initSupabase();
+}
 
 // Make admin button draggable
 (function() {
@@ -1783,10 +1874,13 @@ initAuth();
     
     function dragStart(e) {
         if (e.target === adminBtn) {
-            initialX = e.clientX - adminBtn.offsetLeft;
-            initialY = e.clientY - adminBtn.offsetTop;
+            // LOGIC FIX: Use getBoundingClientRect for accuracy
+            const rect = adminBtn.getBoundingClientRect();
+            initialX = e.clientX - rect.left;
+            initialY = e.clientY - rect.top;
             isDragging = true;
             adminBtn.classList.add('dragging');
+            e.preventDefault(); // Prevent text selection
         }
     }
     
@@ -2110,6 +2204,9 @@ initAuth();
                 this.shieldTimer = 0;
                 this.isRegenerating = false;
                 this.regenerateTimer = 0;
+                
+                // PERFORMANCE FIX: Network throttling
+                this.lastNetworkUpdate = 0;
             }
 
             updateStats() {
@@ -2139,7 +2236,8 @@ initAuth();
                 if (this.shieldTimer > 0) {
                     this.shieldTimer -= dt;
                     if (this.shieldTimer <= 0) this.hasShield = false;
-                    if (Math.random() < 0.3) {
+                    // UI BUG FIX: Don't spawn particles if invisible
+                    if (!this.isInvisible && Math.random() < 0.3) {
                         const angle = Math.random() * Math.PI * 2;
                         particles.push(new Particle(
                             this.x + Math.cos(angle) * this.size * 1.5,
@@ -2224,11 +2322,15 @@ if (socket && isConnected) {
                 
                 this.x = Math.max(50, Math.min(CANVAS_WIDTH - 50, this.x));
                 this.y = Math.max(50, Math.min(CANVAS_HEIGHT - 50, this.y));
-                if (socket && isConnected && !this.isBot) {
+                
+                // PERFORMANCE FIX: Throttle network updates to 20/sec (50ms interval)
+                const now = Date.now();
+                if (socket && isConnected && !this.isBot && (now - this.lastNetworkUpdate > 50)) {
+                    this.lastNetworkUpdate = now;
                     socket.emit('playerMove', {
-                        x: this.x,
-                        y: this.y,
-                        angle: this.angle,
+                        x: Math.round(this.x), // Round to save bandwidth
+                        y: Math.round(this.y),
+                        angle: parseFloat(this.angle.toFixed(2)), // Reduce precision
                         vx: this.vx,
                         vy: this.vy
                     });
@@ -2284,12 +2386,26 @@ if (socket && isConnected) {
                 this.abilityCooldown = abilityInfo.cooldown;
                 
                 const range = 180;
-                const targets = Object.values(bots).filter(b => Math.hypot(b.x - this.x, b.y - this.y) < range);
+                // GAMEPLAY FIX: Abilities now work on BOTH bots AND other players
+                const targets = [
+                    ...Object.values(bots),
+                    ...Object.values(otherPlayers)
+                ].filter(b => Math.hypot(b.x - this.x, b.y - this.y) < range);
                 
                 switch(ability) {
                     case 'stun':
                         targets.forEach(b => {
                             statusEffects.push(new StatusEffect(b, 'stun', 3));
+                            
+                            // GAMEPLAY FIX: If target is a player, tell server to stun them
+                            if (b.isOtherPlayer && socket && isConnected) {
+                                socket.emit('applyStatus', { 
+                                    targetId: b.id, 
+                                    type: 'stun', 
+                                    duration: 3 
+                                });
+                            }
+                            
                             for (let i = 0; i < 10; i++) {
                                 particles.push(new Particle(b.x, b.y, '#ffff00', 'star'));
                             }
@@ -2305,7 +2421,7 @@ if (socket && isConnected) {
                         showToast('Lava Stun Activated!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2319,6 +2435,16 @@ if (socket && isConnected) {
                     case 'poison':
                         targets.forEach(b => {
                             statusEffects.push(new StatusEffect(b, 'poison', 5));
+                            
+                            // GAMEPLAY FIX: If target is a player, tell server to poison them
+                            if (b.isOtherPlayer && socket && isConnected) {
+                                socket.emit('applyStatus', { 
+                                    targetId: b.id, 
+                                    type: 'poison', 
+                                    duration: 5 
+                                });
+                            }
+                            
                             for (let i = 0; i < 8; i++) {
                                 particles.push(new Particle(b.x, b.y, '#9b59b6', 'hit'));
                             }
@@ -2326,7 +2452,7 @@ if (socket && isConnected) {
                         showToast('Poison Sting!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2346,7 +2472,7 @@ if (socket && isConnected) {
                         showToast('Swift Flight!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2366,7 +2492,7 @@ if (socket && isConnected) {
                         showToast('Fury Activated!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2407,7 +2533,7 @@ if (socket && isConnected) {
                         showToast('Ambush Strike!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2427,7 +2553,7 @@ if (socket && isConnected) {
                         showToast('Camouflage!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2443,6 +2569,18 @@ if (socket && isConnected) {
                             const effect = new StatusEffect(b, 'fear', 3);
                             effect.source = this;
                             statusEffects.push(effect);
+                            
+                            // GAMEPLAY FIX: If target is a player, tell server to fear them
+                            if (b.isOtherPlayer && socket && isConnected) {
+                                socket.emit('applyStatus', { 
+                                    targetId: b.id, 
+                                    type: 'fear', 
+                                    duration: 3,
+                                    sourceX: this.x,
+                                    sourceY: this.y
+                                });
+                            }
+                            
                             for (let i = 0; i < 8; i++) {
                                 particles.push(new Particle(b.x, b.y, '#8e44ad', 'normal'));
                             }
@@ -2461,7 +2599,7 @@ if (socket && isConnected) {
                         showToast('Intimidate!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2486,7 +2624,7 @@ if (socket && isConnected) {
                         showToast('Iron Shell!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2525,7 +2663,7 @@ if (socket && isConnected) {
                         showToast('Venom Blast!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2546,7 +2684,7 @@ if (socket && isConnected) {
                         showToast('Regeneration!', 'success');
                         if (socket && isConnected && !this.isBot) {
     socket.emit('playerUpdate', {
-        size: this.size, tier: this.tier, hp: this.hp, xp: this.xp,
+        size: this.size, tier: this.tier, hp: this.hp, maxHp: this.maxHp, xp: this.xp,
         color: this.color, animalType: this.animalData.name,
         animalIndex: this.animalIndex,
         hasShield: this.hasShield,
@@ -2605,6 +2743,7 @@ if (socket && isConnected) {
                         size: this.size,
                         tier: this.tier,
                         hp: this.hp,
+                        maxHp: this.maxHp, // FIXED: Include maxHp
                         xp: this.xp,
                         color: this.color,
                         animalType: this.animalData.name,
@@ -2631,13 +2770,26 @@ if (socket && isConnected) {
                 for (let i = 0; i < 20; i++) particles.push(new Particle(this.x, this.y, '#ffffff'));
                 
                 if (this === player) {
-    showToast('Evolved to ' + this.animalData.name + '!', 'success');
-    // REMOVED: sendChatMessage('evolved to ' + this.animalData.name + '!');
-    if (this.animalData.ability) {
-        document.getElementById('ability-display').style.display = 'block';
-    }
-    hideEvolutionBar();
-}
+                    showToast('Evolved to ' + this.animalData.name + '!', 'success');
+                    if (this.animalData.ability) {
+                        document.getElementById('ability-display').style.display = 'block';
+                    }
+                    hideEvolutionBar();
+                    
+                    // FIXED: Broadcast evolution to other players with animalIndex and maxHp
+                    if (socket && isConnected) {
+                        socket.emit('playerUpdate', {
+                            size: this.size,
+                            tier: this.tier,
+                            hp: this.hp,
+                            maxHp: this.maxHp,
+                            xp: this.xp,
+                            color: this.color,
+                            animalType: this.animalData.name,
+                            animalIndex: this.animalIndex
+                        });
+                    }
+                }
             }
 
             takeDamage(amount) {
@@ -3845,9 +3997,20 @@ if (socket && isConnected) {
         if (colonIndex > 0) {
             const sender = msg.text.substring(0, colonIndex);
             const message = msg.text.substring(colonIndex + 1).trim();
-            div.innerHTML = '<span class="sender">' + sender + ':</span> ' + message;
+            
+            // SECURITY FIX: Create elements safely to prevent XSS
+            const senderSpan = document.createElement('span');
+            senderSpan.className = 'sender';
+            senderSpan.textContent = sender + ': '; // Safe text insertion
+            
+            const messageText = document.createTextNode(message); // Safe text insertion
+            
+            div.appendChild(senderSpan);
+            div.appendChild(messageText);
         } else {
             div.textContent = msg.text;
+            div.style.color = '#888'; // Gray out system messages
+            div.style.fontStyle = 'italic';
         }
         chatContainer.appendChild(div);
     });
@@ -3959,7 +4122,8 @@ document.getElementById('forum-nav-btn').style.display = 'none';
                     y: player.y,
                     angle: player.angle,
                     name: player.name,
-                    userId: currentUser ? currentUser.id : null, // ADD THIS LINE
+                    userId: currentUser ? currentUser.id : null,
+                    email: currentUser ? currentUser.email : null, // For admin verification
                     color: player.color,
                     size: player.size,
                     tier: player.tier,
@@ -4505,6 +4669,7 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
         size: player.size,
         tier: player.tier,
         hp: player.hp,
+        maxHp: player.maxHp, // FIXED: Include maxHp
         xp: player.xp,
         color: player.color,
         animalType: player.animalData.name,
@@ -4683,9 +4848,13 @@ Object.values(bots).forEach(b => {
             
             particles.forEach(p => p.update());
             particles = particles.filter(p => p.life > 0);
+            // MEMORY FIX: Cap particles array to prevent memory leaks
+            if (particles.length > 500) particles.splice(0, particles.length - 500);
             
             damageTexts.forEach(d => d.update(dt));
             damageTexts = damageTexts.filter(d => d.life > 0);
+            // MEMORY FIX: Cap damage texts array to prevent memory leaks
+            if (damageTexts.length > 50) damageTexts.splice(0, damageTexts.length - 50);
 
             camera.x = player.x - canvas.width / 2;
             camera.y = player.y - canvas.height / 2;
