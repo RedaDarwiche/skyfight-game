@@ -1407,17 +1407,26 @@ function teleportCenter() {
             });
             
             socket.on('playerUpdated', (data) => {
-                if (otherPlayers[data.id]) {
-                    const oldTier = otherPlayers[data.id].tier;
-                    
-                    // If tier changed, they evolved
-                    if (data.tier && data.tier !== oldTier && data.animalIndex !== undefined) {
-                        otherPlayers[data.id].evolve(data.tier, data.animalIndex);
-                    }
-                    
-                    otherPlayers[data.id].xp = data.xp;
-                }
-            });
+    if (otherPlayers[data.id]) {
+        const oldTier = otherPlayers[data.id].tier;
+        
+        // If tier changed, they evolved
+        if (data.tier && data.tier !== oldTier && data.animalIndex !== undefined) {
+            otherPlayers[data.id].evolve(data.tier, data.animalIndex);
+        }
+        
+        // UPDATE HP AND XP
+        otherPlayers[data.id].hp = data.hp;
+        otherPlayers[data.id].maxHp = data.hp; // Keep maxHp in sync
+        otherPlayers[data.id].xp = data.xp;
+        
+        // Show hit flash if HP decreased
+        if (data.hp < (otherPlayers[data.id].lastKnownHp || data.hp)) {
+            otherPlayers[data.id].hitFlash = 1;
+        }
+        otherPlayers[data.id].lastKnownHp = data.hp;
+    }
+});
             
             socket.on('playerDisconnected', (playerId) => {
     delete otherPlayers[playerId];
@@ -1454,6 +1463,19 @@ socket.on('gotHit', (data) => {
         damageTexts.push(new DamageText(player.x, player.y - player.size - 20, data.damage, '#e74c3c'));
         for (let i = 0; i < 5; i++) {
             particles.push(new Particle(player.x, player.y, player.color, 'hit'));
+        }
+        
+        // BROADCAST HP UPDATE TO ALL PLAYERS
+        if (socket && isConnected) {
+            socket.emit('playerUpdate', {
+                size: player.size,
+                tier: player.tier,
+                hp: player.hp,
+                xp: player.xp,
+                color: player.color,
+                animalType: player.animalData.name,
+                animalIndex: player.animalIndex
+            });
         }
         
         if (player.hp <= 0) {
@@ -1667,32 +1689,50 @@ if (isOwner()) {
         }
 
         async function handleSignup() {
-            const username = document.getElementById('signup-username').value.trim();
-            const email = document.getElementById('signup-email').value.trim();
-            const password = document.getElementById('signup-password').value;
-            if (!username || !email || !password) { showToast("Fill all fields", "error"); return; }
-            try {
-                const { data, error } = await supabase.auth.signUp({
-                    email,
-                    password,
-                    options: { data: { username: username } }
-                });
-                if (error) throw error;
+    const username = document.getElementById('signup-username').value.trim();
+    const email = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+    
+    if (!username || !email || !password) { 
+        showToast("Please fill all fields", "error"); 
+        return; 
+    }
+    
+    if (password.length < 6) {
+        showToast("Password must be at least 6 characters", "error");
+        return;
+    }
+    
+    try {
+        const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: { 
+                data: { username: username },
+                emailRedirectTo: window.location.origin
+            }
+        });
+        
+        if (error) throw error;
 
-                // Check if we are logged in immediately (Auto-confirm enabled)
-                if (data.session) {
-                    showToast("Account Created & Logged In!", "success");
-                    closeAuthModal();
-                } else {
-                    // Verification required
-                    document.getElementById('auth-form').style.display = 'none';
-                    document.getElementById('confirm-msg').style.display = 'block';
-                    document.getElementById('confirm-msg').innerHTML = 
-                        '<p style="font-size: 1.1rem; margin-bottom: 10px;">Account Created!</p>' +
-                        '<p>If you do not see an email, check your Spam folder.</p>';
-                }
-            } catch (err) { showToast(err.message, "error"); }
+        // Check if we are logged in immediately (Auto-confirm enabled)
+        if (data.session) {
+            showToast("Account Created & Logged In!", "success");
+            closeAuthModal();
+        } else if (data.user) {
+            // Verification required - user created but not confirmed
+            document.getElementById('auth-form').style.display = 'none';
+            document.getElementById('confirm-msg').style.display = 'block';
+            document.getElementById('confirm-msg').innerHTML = 
+                '<p style="font-size: 1.1rem; margin-bottom: 10px; color: #2e7d32;">✓ Account Created!</p>' +
+                '<p style="color: #666;">Check your email <strong>' + email + '</strong> to confirm your account.</p>' +
+                '<p style="color: #999; font-size: 0.9rem; margin-top: 10px;">Don\'t see it? Check your spam folder.</p>';
         }
+    } catch (err) { 
+        console.error('Signup error:', err);
+        showToast(err.message, "error"); 
+    }
+}
 
         async function handleLogout() {
             await supabase.auth.signOut();
@@ -2235,7 +2275,6 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Lava Stun Activated!', 'success');
-                        sendChatMessage('used Lava Stun!');
                         break;
                         
                     case 'poison':
@@ -2246,7 +2285,6 @@ if (socket && isConnected) {
                             }
                         });
                         showToast('Poison Sting!', 'success');
-                        sendChatMessage('used Poison Sting!');
                         break;
                         
                     case 'speed':
@@ -2256,7 +2294,6 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#3498db', 'normal'));
                         }
                         showToast('Swift Flight!', 'success');
-                        sendChatMessage('activated Swift Flight!');
                         break;
                         
                     case 'rage':
@@ -2266,7 +2303,6 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#e74c3c', 'fire'));
                         }
                         showToast('Fury Activated!', 'success');
-                        sendChatMessage('entered Fury mode!');
                         break;
                         
                     case 'strike':
@@ -2297,7 +2333,6 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#27ae60', 'normal'));
                         }
                         showToast('Ambush Strike!', 'success');
-                        sendChatMessage('used Ambush Strike!');
                         break;
                         
                     case 'invisible':
@@ -2307,7 +2342,6 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#95a5a6', 'normal'));
                         }
                         showToast('Camouflage!', 'success');
-                        sendChatMessage('used Camouflage!');
                         break;
                         
                     case 'fear':
@@ -2331,7 +2365,6 @@ if (socket && isConnected) {
                         }
                         
                         showToast('Intimidate!', 'success');
-                        sendChatMessage('intimidated enemies!');
                         break;
                         
                     case 'shield':
@@ -2346,7 +2379,6 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Iron Shell!', 'success');
-                        sendChatMessage('activated Iron Shell!');
                         break;
                         
                     case 'venom':
@@ -2375,7 +2407,6 @@ if (socket && isConnected) {
                             ));
                         }
                         showToast('Venom Blast!', 'success');
-                        sendChatMessage('unleashed Venom Blast!');
                         break;
                         
                     case 'regenerate':
@@ -2386,7 +2417,6 @@ if (socket && isConnected) {
                             particles.push(new Particle(this.x, this.y, '#27ae60', 'normal'));
                         }
                         showToast('Regeneration!', 'success');
-                        sendChatMessage('activated Regeneration!');
                         break;
                 }
                 
@@ -3652,31 +3682,38 @@ if (socket && isConnected) {
 
         function sendChatMessage(message) {
     if (!player) return;
-    const fullMessage = player.name + ' ' + message;
+    const fullMessage = player.name + ': ' + message; // CHANGED: Added colon
     chatMessages.push({ text: fullMessage, time: Date.now() });
     if (chatMessages.length > 5) chatMessages.shift();
     updateChatDisplay();
     
-    // Broadcast to other players - send just the message text, not full message
+    // Broadcast to other players
     if (socket && isConnected) {
         socket.emit('chatMessage', {
-            text: message, // Send just the message, server adds name
+            text: message,
             playerName: player.name
         });
     }
 }
 
         function updateChatDisplay() {
-            const chatContainer = document.getElementById('chat-messages');
-            chatContainer.innerHTML = '';
-            chatMessages.forEach(msg => {
-                const div = document.createElement('div');
-                div.className = 'chat-message';
-                const parts = msg.text.split(' ');
-                div.innerHTML = '<span class="sender">' + parts[0] + '</span> ' + parts.slice(1).join(' ');
-                chatContainer.appendChild(div);
-            });
+    const chatContainer = document.getElementById('chat-messages');
+    chatContainer.innerHTML = '';
+    chatMessages.forEach(msg => {
+        const div = document.createElement('div');
+        div.className = 'chat-message';
+        // Split by first colon to separate name and message
+        const colonIndex = msg.text.indexOf(':');
+        if (colonIndex > 0) {
+            const sender = msg.text.substring(0, colonIndex);
+            const message = msg.text.substring(colonIndex + 1).trim();
+            div.innerHTML = '<span class="sender">' + sender + ':</span> ' + message;
+        } else {
+            div.textContent = msg.text;
         }
+        chatContainer.appendChild(div);
+    });
+}
 
        function showEvolutionBar(tier) {
             const evolutionBar = document.getElementById('evolution-bar');
@@ -4395,21 +4432,26 @@ Object.values(otherPlayers).forEach(other => {
             if (player.hasRage) damage *= 2;
             
             if (player.size >= other.size && !other.hasShield) {
-                damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
-                for (let i = 0; i < 5; i++) {
-                    particles.push(new Particle(other.x, other.y, other.color, 'hit'));
-                }
-                
-                if (socket && isConnected) {
-                    socket.emit('playerHit', {
-                        targetId: other.id,
-                        damage: damage
-                    });
-                }
-                
-                player.inCombat = true;
-                player.lastHitTime = Date.now();
-            }
+    // Show damage text and particles
+    damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
+    for (let i = 0; i < 5; i++) {
+        particles.push(new Particle(other.x, other.y, other.color, 'hit'));
+    }
+    
+    // Make the other player flash
+    other.hitFlash = 1;
+    
+    // Send hit to server
+    if (socket && isConnected) {
+        socket.emit('playerHit', {
+            targetId: other.id,
+            damage: damage
+        });
+    }
+    
+    player.inCombat = true;
+    player.lastHitTime = Date.now();
+}
         }
         
         if (player.pvpCooldowns[other.id] > 0) {
@@ -4676,24 +4718,24 @@ document.getElementById('forum-nav-btn').style.display = 'inline-block';
         });
         window.addEventListener('keydown', e => {
             if (e.code === 'Enter') {
-                e.preventDefault();
-                if (!gameRunning) return;
-                
-                if (!chatOpen) {
-                    chatOpen = true;
-                    document.getElementById('chat-input-container').style.display = 'block';
-                    document.getElementById('chat-input').focus();
-                } else {
-                    const input = document.getElementById('chat-input');
-                    const message = input.value.trim();
-                    if (message) {
-                        sendChatMessage('says: ' + message);
-                    }
-                    input.value = '';
-                    chatOpen = false;
-                    document.getElementById('chat-input-container').style.display = 'none';
-                }
-            }
+    e.preventDefault();
+    if (!gameRunning) return;
+    
+    if (!chatOpen) {
+        chatOpen = true;
+        document.getElementById('chat-input-container').style.display = 'block';
+        document.getElementById('chat-input').focus();
+    } else {
+        const input = document.getElementById('chat-input');
+        const message = input.value.trim();
+        if (message) {
+            sendChatMessage(message); // CHANGED: Removed 'says: ' prefix
+        }
+        input.value = '';
+        chatOpen = false;
+        document.getElementById('chat-input-container').style.display = 'none';
+    }
+}
             
             if (chatOpen) return; // Don't allow game controls while chatting
             
