@@ -3930,54 +3930,113 @@ if (Math.floor(player.xp) % 10 === 0 && socket && isConnected) {
                     xpOrbs.splice(i, 1);
                 }
             }
-// PLAYER VS PLAYER COMBAT (with 2-second cooldown, only during dash)
-            Object.values(otherPlayers).forEach(other => {
-                if (!other || other.isDead) return;
-                if (player.isStunned || other.isStunned) return;
-                
-                const dist = Math.hypot(other.x - player.x, other.y - player.y);
-                const minDist = player.size + other.size;
-                
-                if (dist < minDist) {
-                    const now = Date.now();
-                    
-                    // Only deal damage when actively dashing
-                    if (player.isDashing && player.size >= other.size) {
-                        // Cooldown - only damage once per 2 seconds
-                        if (!player.lastPvpHitTime) player.lastPvpHitTime = {};
-                        if (player.lastPvpHitTime[other.id] && now - player.lastPvpHitTime[other.id] < 2000) {
-                            return; // Skip if hit this player recently
-                        }
-                        
-                        // Player is bigger AND dashing - deal damage
-                        const damage = Math.max(10, player.tier * 5);
-                        player.lastPvpHitTime[other.id] = now;
-                        
-                        // Visual feedback on OTHER player
-                        damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
-                        for (let i = 0; i < 5; i++) {
-                            particles.push(new Particle(other.x, other.y, other.color, 'hit'));
-                        }
-                        
-                        // Tell server about hit
-                        if (socket && isConnected) {
-                            socket.emit('playerHit', {
-                                targetId: other.id,
-                                damage: damage
-                            });
-                        }
-                        
-                        player.inCombat = true;
-                        player.lastHitTime = Date.now();
-                    }
-                    
-                    // Push players apart slightly to prevent sticking
-                    const pushAngle = Math.atan2(player.y - other.y, player.x - other.x);
-                    const pushForce = 3;
-                    player.x += Math.cos(pushAngle) * pushForce;
-                    player.y += Math.sin(pushAngle) * pushForce;
+// PLAYER VS PLAYER COMBAT (based on working bot combat mechanics)
+Object.values(otherPlayers).forEach(other => {
+    if (!other || other.isDead) return;
+    if (player.isStunned || other.isStunned) return;
+    
+    const combatDist = Math.hypot(player.x - other.x, player.y - other.y);
+    const touchDist = player.size + other.size;
+    
+    if (combatDist < touchDist) {
+        const ang = Math.atan2(player.y - other.y, player.x - other.x);
+        const overlap = touchDist - combatDist;
+        const pushForce = overlap * 0.5;
+        
+        player.x += Math.cos(ang) * pushForce * 0.5;
+        player.y += Math.sin(ang) * pushForce * 0.5;
+        
+        if (!player.pvpCooldowns) player.pvpCooldowns = {};
+        
+        if (!player.pvpCooldowns[other.id] || player.pvpCooldowns[other.id] <= 0) {
+            player.pvpCooldowns[other.id] = 0.5;
+            
+            let damage = player.damage;
+            if (player.hasRage) damage *= 2;
+            
+            if (player.size >= other.size && !other.hasShield) {
+                damageTexts.push(new DamageText(other.x, other.y - other.size - 20, damage, '#e74c3c'));
+                for (let i = 0; i < 5; i++) {
+                    particles.push(new Particle(other.x, other.y, other.color, 'hit'));
                 }
-            });
+                
+                if (socket && isConnected) {
+                    socket.emit('playerHit', {
+                        targetId: other.id,
+                        damage: damage
+                    });
+                }
+                
+                player.inCombat = true;
+                player.lastHitTime = Date.now();
+            }
+        }
+        
+        if (player.pvpCooldowns[other.id] > 0) {
+            player.pvpCooldowns[other.id] -= 0.016;
+        }
+    }
+});
+
+// PLAYER VS BOT COMBAT (from old working code)
+Object.values(bots).forEach(b => {
+    if (player.isStunned || b.isDead) return;
+    
+    const combatDist = Math.hypot(player.x - b.x, player.y - b.y);
+    const touchDist = player.size + b.size;
+    
+    if (combatDist < touchDist) {
+        const ang = Math.atan2(player.y - b.y, player.x - b.x);
+        const overlap = touchDist - combatDist;
+        const pushForce = overlap * 0.5;
+        
+        player.x += Math.cos(ang) * pushForce * 0.5;
+        player.y += Math.sin(ang) * pushForce * 0.5;
+        b.x -= Math.cos(ang) * pushForce * 0.5;
+        b.y -= Math.sin(ang) * pushForce * 0.5;
+        
+        if (player.combatCooldown <= 0) {
+            player.combatCooldown = 0.5;
+            
+            let playerDmg = b.damage;
+            let botDmg = player.damage;
+            
+            if (player.hasRage) botDmg *= 2;
+            if (b.hasRage) playerDmg *= 2;
+            
+            if (!b.hasShield) {
+                b.onHit(botDmg, player);
+                b.hp -= botDmg;
+                
+                if (socket && isConnected) {
+                    socket.emit('botDamaged', {
+                        botId: b.botId,
+                        damage: botDmg,
+                        hp: b.hp,
+                        isDead: b.hp <= 0
+                    });
+                }
+            }
+            
+            if (!b.isStunned) {
+                const angleToPlayer = Math.atan2(player.y - b.y, player.x - b.x);
+                let angleDiff = angleToPlayer - b.angle;
+                while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+                while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+                
+                if (Math.abs(angleDiff) < Math.PI / 2 && !player.hasShield) {
+                    player.onHit(playerDmg, b);
+                    player.hp -= playerDmg;
+                }
+            }
+            
+            if (player.hp <= 0) {
+                playerDied();
+                return;
+            }
+        }
+    }
+});
 
             Object.values(bots).forEach(b => {
                 if (b.hp <= 0 && !b.isDead) {
